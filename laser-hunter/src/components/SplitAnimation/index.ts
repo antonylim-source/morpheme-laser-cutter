@@ -1,0 +1,2 @@
+export { SplitAnimation } from './SplitAnimation'
+

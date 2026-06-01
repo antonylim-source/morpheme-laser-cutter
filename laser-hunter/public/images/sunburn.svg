@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120" viewBox="0 0 320 120">
+  <defs>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9a3412"/>
+      <stop offset="100%" stop-color="#431407"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="12" width="312" height="96" rx="28" fill="url(#rock)" stroke="#292524" stroke-width="3"/>
+  <path d="M24 28 L34 36 L28 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M60 28 L70 36 L64 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M96 28 L106 36 L100 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M132 28 L142 36 L136 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M168 28 L178 36 L172 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M204 28 L214 36 L208 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M240 28 L250 36 L244 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/><path d="M276 28 L286 36 L280 52" fill="none" stroke="#292524" stroke-width="2" opacity="0.5"/>
+  <circle cx="90" cy="60" r="28" fill="#713f12" stroke="#fbbf24" stroke-width="2"/>
+  <text x="90" y="70" text-anchor="middle" font-size="32">☀️</text>
+  <circle cx="230" cy="60" r="28" fill="#7f1d1d" stroke="#f87171" stroke-width="2"/>
+  <text x="230" y="70" text-anchor="middle" font-size="32">🔥</text>
+  <text x="160" y="68" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-size="22" font-weight="900" fill="#fef3c7" letter-spacing="2">SUNBURN</text>
+</svg>
