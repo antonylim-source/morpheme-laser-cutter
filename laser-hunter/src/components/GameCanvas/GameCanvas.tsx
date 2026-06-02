@@ -13,7 +13,6 @@ import {
   MONSTER_SPAWN_X,
   MONSTER_TARGET_X,
   computeMonsterLayout,
-  getCanvasWordWidth,
   getMonsterSpeedPxPerSec,
   type MonsterLayoutSnapshot,
 } from '../../utils/monsterLayout'
@@ -67,7 +66,7 @@ export function GameCanvas({
   const trailRef = useRef<TrailPoint[]>([])
   const deflectRef = useRef<DeflectState | null>(null)
   const shieldFlashRef = useRef(0)
-  const combinedImgRef = useRef<HTMLImageElement | null>(null)
+  const monsterImgRef = useRef<HTMLImageElement | null>(null)
   const prevStatusRef = useRef<GameState['status']>(gameStatus)
   const lastLayoutEmitRef = useRef(0)
 
@@ -116,17 +115,18 @@ export function GameCanvas({
 
   useEffect(() => {
     const img = new Image()
-    img.src = word.combinedImage
+    // Vite base 경로(예: GitHub Pages 서브패스)를 반영
+    img.src = `${import.meta.env.BASE_URL}images/monster.png`
     img.onload = () => {
-      combinedImgRef.current = img
+      monsterImgRef.current = img
     }
     img.onerror = () => {
-      combinedImgRef.current = null
+      monsterImgRef.current = null
     }
     return () => {
-      combinedImgRef.current = null
+      monsterImgRef.current = null
     }
-  }, [word.combinedImage])
+  }, [])
 
   useEffect(() => {
     const prev = prevStatusRef.current
@@ -178,7 +178,8 @@ export function GameCanvas({
       lastTouchXRef.current = p.x
       const now = performance.now()
       trailRef.current.push({ x: p.x, y: p.y, t: now })
-      if (trailRef.current.length > 24) trailRef.current.shift()
+      // 더 부드러운 잔상(포인트 수 증가)
+      if (trailRef.current.length > 140) trailRef.current.shift()
     }
 
     const end = (clientX: number, clientY: number) => {
@@ -317,35 +318,33 @@ export function GameCanvas({
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     }
 
-    const drawMonsterBody = (xCenter: number, totalScale: number) => {
-      const padX = 28
-      const len = Math.max(1, word.full.length)
-      const textW = len * WORD_FONT_SIZE * 0.62
-      const baseW = Math.min(720, Math.max(360, textW + padX * 2))
-      const baseH = 92
-      const boulderW = baseW * totalScale
-      const boulderH = baseH * totalScale
-      const x = xCenter - boulderW / 2
-      const y = wordZone.wordY - boulderH / 2
+    const drawMonsterBody = (layout: MonsterLayoutSnapshot, xCenter = layout.monsterX) => {
+      const totalScale = layout.totalScale
+      const monsterImg = monsterImgRef.current
+      const aspect =
+        monsterImg?.complete && monsterImg.naturalWidth > 0
+          ? monsterImg.naturalHeight / monsterImg.naturalWidth
+          : 0.62
+
+      // 텍스트/판정은 고정 폭. 몬스터 이미지는 approach/fail 스케일만 적용.
+      const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
+      const w = baseW * totalScale
+      const h = w * aspect
+      const yCenter = wordZone.wordY + 22 * totalScale
+      const x = xCenter - w / 2
+      const y = yCenter - h / 2
 
       ctx.save()
 
       if (failCount > 0) {
         const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 180)
         ctx.save()
-        const fg = ctx.createRadialGradient(
-          xCenter,
-          wordZone.wordY,
-          boulderH * 0.3,
-          xCenter,
-          wordZone.wordY,
-          boulderW * 0.75,
-        )
-        fg.addColorStop(0, `rgba(251, 146, 60, ${0.25 * pulse})`)
-        fg.addColorStop(0.6, `rgba(239, 68, 68, ${0.18 * pulse})`)
+        const fg = ctx.createRadialGradient(xCenter, yCenter, h * 0.22, xCenter, yCenter, w * 0.62)
+        fg.addColorStop(0, `rgba(251, 146, 60, ${0.22 * pulse})`)
+        fg.addColorStop(0.55, `rgba(239, 68, 68, ${0.16 * pulse})`)
         fg.addColorStop(1, 'rgba(0,0,0,0)')
         ctx.fillStyle = fg
-        ctx.fillRect(x - 40, y - 40, boulderW + 80, boulderH + 80)
+        ctx.fillRect(x - 60, y - 60, w + 120, h + 120)
         ctx.restore()
       }
 
@@ -353,7 +352,7 @@ export function GameCanvas({
       if (shieldAge < 450) {
         const shieldAlpha = 1 - shieldAge / 450
         ctx.save()
-        roundRect(ctx, x - 6, y - 6, boulderW + 12, boulderH + 12, 26)
+        roundRect(ctx, x - 8, y - 8, w + 16, h + 16, 26 * totalScale)
         ctx.strokeStyle = `rgba(148, 163, 184, ${shieldAlpha * 0.95})`
         ctx.lineWidth = 4 + shieldAlpha * 4
         ctx.shadowColor = '#e2e8f0'
@@ -362,42 +361,21 @@ export function GameCanvas({
         ctx.restore()
       }
 
-      roundRect(ctx, x, y, boulderW, boulderH, 22 * totalScale)
-      const rockGrad = ctx.createLinearGradient(x, y, x, y + boulderH)
-      rockGrad.addColorStop(0, failCount > 0 ? '#b45309' : '#9a3412')
-      rockGrad.addColorStop(1, '#431407')
-      ctx.fillStyle = rockGrad
-      ctx.fill()
-      ctx.strokeStyle = failCount > 0 ? 'rgba(251, 146, 60, 0.6)' : 'rgba(0,0,0,0.35)'
-      ctx.lineWidth = 2 + failCount
-      ctx.stroke()
-
-      const img = combinedImgRef.current
-      if (img?.complete && img.naturalWidth > 0) {
+      if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
         ctx.save()
-        roundRect(ctx, x + 8, y + 8, boulderW - 16, boulderH - 16, 18)
-        ctx.clip()
-        ctx.globalAlpha = 0.35
-        ctx.drawImage(img, x + 8, y + 8, boulderW - 16, boulderH - 16)
+        ctx.globalAlpha = 1
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(monsterImg, x, y, w, h)
+        ctx.restore()
+      } else {
+        // fallback (이미지 로딩 실패 시 최소한의 실루엣)
+        ctx.save()
+        roundRect(ctx, x, y, w, h, 22 * totalScale)
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.16)'
+        ctx.fill()
         ctx.restore()
       }
-
-      ctx.save()
-      ctx.beginPath()
-      roundRect(ctx, x, y, boulderW, boulderH, 22 * totalScale)
-      ctx.clip()
-      ctx.strokeStyle = 'rgba(20, 10, 8, 0.35)'
-      ctx.lineWidth = 2
-      for (let i = 0; i < 18; i++) {
-        const cx = x + 20 + (i * (boulderW - 40)) / 18
-        const cy = y + 18 + ((i % 6) * (boulderH - 36)) / 6
-        ctx.beginPath()
-        ctx.moveTo(cx, cy)
-        ctx.lineTo(cx + 14, cy + 6)
-        ctx.lineTo(cx + 6, cy + 18)
-        ctx.stroke()
-      }
-      ctx.restore()
 
       ctx.restore()
     }
@@ -409,21 +387,21 @@ export function GameCanvas({
         const offset = i * (8 + speed * 0.012)
         ctx.save()
         ctx.globalAlpha = 0.06 * (ghostCount - i + 1)
-        drawMonsterBody(layout.monsterX + offset, layout.totalScale)
+        drawMonsterBody(layout, layout.monsterX + offset)
         ctx.restore()
       }
     }
 
     const drawWordOnMonster = (layout: MonsterLayoutSnapshot) => {
       const text = word.full.toUpperCase()
-      const totalScale = layout.totalScale
       ctx.save()
-      ctx.font = `900 ${WORD_FONT_SIZE * totalScale}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`
+      // 단어 텍스트는 고정 크기(몬스터 스케일의 영향 없음)
+      ctx.font = `900 ${WORD_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`
       ctx.textBaseline = 'middle'
 
       const len = Math.max(1, text.length)
-      const baseWordWidth = getCanvasWordWidth(len)
-      const charW = (baseWordWidth * totalScale) / len
+      const baseWordWidth = layout.canvasWordWidth
+      const charW = baseWordWidth / len
       const x0 = layout.wordStartX
       const y = wordZone.wordY
 
@@ -477,7 +455,7 @@ export function GameCanvas({
 
     const drawMonster = (layout: MonsterLayoutSnapshot, speed: number) => {
       drawMotionTrail(layout, speed)
-      drawMonsterBody(layout.monsterX, layout.totalScale)
+      drawMonsterBody(layout)
       drawWordOnMonster(layout)
     }
 
@@ -494,19 +472,62 @@ export function GameCanvas({
 
     const drawNeonLaser = () => {
       const now = performance.now()
-      trailRef.current = trailRef.current.filter((p) => now - p.t < 280)
+      // 잔상 길이(시간) 증가
+      const trailLifeMs = 1650
+      trailRef.current = trailRef.current.filter((p) => now - p.t < trailLifeMs)
 
       const points = trailRef.current
       if (points.length >= 2) {
+        const maxW = 12
+        const minW = 2
         for (let i = 1; i < points.length; i++) {
           const a = points[i - 1]!
           const b = points[i]!
           const age = now - b.t
-          const alpha = Math.max(0, 1 - age / 280)
+          const life = Math.max(0, 1 - age / trailLifeMs)
+          const progress = i / (points.length - 1)
+          const width = minW + (maxW - minW) * (1 - progress) * (0.55 + 0.45 * life)
+
+          // Outer glow (purple)
           ctx.save()
-          ctx.strokeStyle = `rgba(34, 211, 238, ${(alpha * 0.35).toFixed(3)})`
-          ctx.lineWidth = 14
+          ctx.globalCompositeOperation = 'lighter'
           ctx.lineCap = 'round'
+          ctx.shadowColor = '#a855f7'
+          ctx.shadowBlur = 26 * life
+          ctx.strokeStyle = `rgba(168, 85, 247, ${(life * 0.16).toFixed(3)})`
+          ctx.lineWidth = width + 6
+          ctx.beginPath()
+          ctx.moveTo(a.x, a.y)
+          ctx.lineTo(b.x, b.y)
+          ctx.stroke()
+          ctx.restore()
+
+          // Neon core (gradient)
+          ctx.save()
+          ctx.globalCompositeOperation = 'lighter'
+          ctx.lineCap = 'round'
+          const lg = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
+          lg.addColorStop(0, `rgba(34, 211, 238, ${(life * 0.65).toFixed(3)})`)
+          lg.addColorStop(0.5, `rgba(250, 204, 21, ${(life * 0.75).toFixed(3)})`)
+          lg.addColorStop(1, `rgba(244, 114, 182, ${(life * 0.6).toFixed(3)})`)
+          ctx.shadowColor = '#facc15'
+          ctx.shadowBlur = 18 * life
+          ctx.strokeStyle = lg
+          ctx.lineWidth = width
+          ctx.beginPath()
+          ctx.moveTo(a.x, a.y)
+          ctx.lineTo(b.x, b.y)
+          ctx.stroke()
+          ctx.restore()
+
+          // White hot highlight
+          ctx.save()
+          ctx.globalCompositeOperation = 'lighter'
+          ctx.lineCap = 'round'
+          ctx.shadowColor = '#ffffff'
+          ctx.shadowBlur = 10 * life
+          ctx.strokeStyle = `rgba(255,255,255, ${(life * 0.35).toFixed(3)})`
+          ctx.lineWidth = Math.max(1.5, width * 0.25)
           ctx.beginPath()
           ctx.moveTo(a.x, a.y)
           ctx.lineTo(b.x, b.y)
@@ -514,48 +535,6 @@ export function GameCanvas({
           ctx.restore()
         }
       }
-
-      if (!laserActiveRef.current) return
-      const x = laserXRef.current
-      const cur = gestureCurrentRef.current
-      if (!cur) return
-      const y1 = Math.max(0, Math.min(CANVAS_HEIGHT, cur.y - 130))
-      const y2 = Math.max(0, Math.min(CANVAS_HEIGHT, cur.y + 130))
-
-      ctx.save()
-      ctx.lineCap = 'round'
-
-      ctx.strokeStyle = 'rgba(168, 85, 247, 0.35)'
-      ctx.lineWidth = 16
-      ctx.shadowColor = '#a855f7'
-      ctx.shadowBlur = 28
-      ctx.beginPath()
-      ctx.moveTo(x + 0.5, y1)
-      ctx.lineTo(x + 0.5, y2)
-      ctx.stroke()
-
-      const lg = ctx.createLinearGradient(x, y1, x, y2)
-      lg.addColorStop(0, '#22d3ee')
-      lg.addColorStop(0.5, '#facc15')
-      lg.addColorStop(1, '#f472b6')
-      ctx.strokeStyle = lg
-      ctx.lineWidth = 6
-      ctx.shadowColor = '#facc15'
-      ctx.shadowBlur = 22
-      ctx.beginPath()
-      ctx.moveTo(x + 0.5, y1)
-      ctx.lineTo(x + 0.5, y2)
-      ctx.stroke()
-
-      ctx.strokeStyle = '#ffffff'
-      ctx.lineWidth = 2
-      ctx.shadowBlur = 8
-      ctx.beginPath()
-      ctx.moveTo(x + 0.5, y1)
-      ctx.lineTo(x + 0.5, y2)
-      ctx.stroke()
-
-      ctx.restore()
     }
 
     const drawDeflection = () => {

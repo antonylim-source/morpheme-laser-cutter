@@ -2,8 +2,8 @@ import type { AgeMode, GameConfig } from '../types/game.types'
 
 export const AGE_TOLERANCE: Record<AgeMode, number> = {
   young: 20,
-  standard: 12,
-  advanced: 8,
+  standard: 18,
+  advanced: 12,
 }
 
 /** @deprecated use gameConfig.monsterBaseSpeed (px/sec) */

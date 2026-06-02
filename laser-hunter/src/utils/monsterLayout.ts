@@ -52,17 +52,19 @@ export function computeMonsterLayout(
   failCount: number,
 ): MonsterLayoutSnapshot {
   const len = Math.max(1, word.full.length)
+  // 텍스트/경계선(판정) 레이아웃은 스케일을 적용하지 않는다.
+  // 몬스터(이미지)만 approach/fail 스케일로 커지게 하려면,
+  // wordStartX/canvasWordWidth/boundaryPixelX는 "고정 폭" 기준이어야 한다.
   const canvasWordWidth = getCanvasWordWidth(len)
   const approachProgress = getApproachProgress(monsterX)
   const totalScale = getApproachScale(approachProgress) * getFailScale(failCount)
-  const scaledWordWidth = canvasWordWidth * totalScale
-  const wordStartX = monsterX - scaledWordWidth / 2
-  const boundaryPixelX = (word.boundaryIndex / len) * scaledWordWidth + wordStartX
+  const wordStartX = monsterX - canvasWordWidth / 2
+  const boundaryPixelX = (word.boundaryIndex / len) * canvasWordWidth + wordStartX
 
   return {
     monsterX,
     wordStartX,
-    canvasWordWidth: scaledWordWidth,
+    canvasWordWidth,
     boundaryPixelX,
     boundaryX01: boundaryPixelX / CANVAS_WIDTH,
     approachProgress,
