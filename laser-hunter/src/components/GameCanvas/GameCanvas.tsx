@@ -7,20 +7,29 @@ import {
   WORD_Y_POSITION,
   AGE_TOLERANCE,
   gameConfig,
+  getWordRevealAlpha,
+  isWordSlashable,
 } from '../../constants/gameConfig'
 import type { AgeMode, CompoundWord, GameState } from '../../types/game.types'
 import {
-  MONSTER_SPAWN_X,
-  MONSTER_TARGET_X,
+  APPROACH_EQUIV_DISTANCE_PX,
   computeMonsterLayout,
   getMonsterSpeedPxPerSec,
+  getMonsterVisualCenterY,
   type MonsterLayoutSnapshot,
 } from '../../utils/monsterLayout'
+import {
+  WORD_FONT_FAMILY,
+  applyWordFont,
+  measureWordText,
+  type WordTextMetrics,
+} from '../../utils/wordTextMetrics'
 
 type Props = {
   word: CompoundWord
   gameStatus: GameState['status']
   failCount: number
+  streak?: number
   ageMode?: AgeMode
   loading?: boolean
   devOverlay?: boolean
@@ -29,6 +38,11 @@ type Props = {
 }
 
 type TrailPoint = { x: number; y: number; t: number }
+
+const MAX_CANVAS_DPR = 2
+const MAX_TRAIL_POINTS = 48
+const TRAIL_LIFE_MS = 1200
+const TRAIL_MIN_DIST_SQ = 6 * 6
 
 type DeflectState = {
   x: number
@@ -41,6 +55,7 @@ export function GameCanvas({
   word,
   gameStatus,
   failCount,
+  streak = 0,
   ageMode = 'standard',
   loading = false,
   devOverlay = false,
@@ -50,13 +65,12 @@ export function GameCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  const [scale, setScale] = useState(1)
   const [shakeKey, setShakeKey] = useState(0)
   const reduceMotion = useReducedMotion() ?? false
 
-  const monsterXRef = useRef(MONSTER_SPAWN_X)
+  const approachRef = useRef(0)
   const layoutSnapshotRef = useRef<MonsterLayoutSnapshot>(
-    computeMonsterLayout(word, MONSTER_SPAWN_X, failCount),
+    computeMonsterLayout(word, 0, failCount),
   )
   const laserActiveRef = useRef(false)
   const laserXRef = useRef(0)
@@ -69,12 +83,20 @@ export function GameCanvas({
   const monsterImgRef = useRef<HTMLImageElement | null>(null)
   const prevStatusRef = useRef<GameState['status']>(gameStatus)
   const lastLayoutEmitRef = useRef(0)
+  const canvasRectRef = useRef<DOMRect | null>(null)
+  const textMetricsRef = useRef<WordTextMetrics | null>(null)
+  const textMetricsWordIdRef = useRef('')
+  const growPunchStartRef = useRef(0)
+  const wordPopStartRef = useRef(0)
+  const successFlashStartRef = useRef(0)
+  const prevWordVisibleRef = useRef(false)
+  const prevFailCountRef = useRef(failCount)
 
   const wordZone = useMemo(
     () => ({
       wordY: WORD_Y_POSITION,
-      wordZoneTop: 200,
-      wordZoneBottom: 400,
+      wordZoneTop: WORD_Y_POSITION - 100,
+      wordZoneBottom: WORD_Y_POSITION + 100,
     }),
     [],
   )
@@ -85,33 +107,57 @@ export function GameCanvas({
   )
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect()
-      const availableW = Math.max(1, r.width)
-      const nextScale = Math.min(1, availableW / CANVAS_WIDTH)
-      setScale(nextScale)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1))
+    const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, Math.floor(window.devicePixelRatio || 1)))
     canvas.width = CANVAS_WIDTH * dpr
     canvas.height = CANVAS_HEIGHT * dpr
   }, [])
 
   useEffect(() => {
-    monsterXRef.current = MONSTER_SPAWN_X
+    void document.fonts.load(`700 ${WORD_FONT_SIZE}px ${WORD_FONT_FAMILY}`)
+  }, [])
+
+  useEffect(() => {
+    approachRef.current = 0
     deflectRef.current = null
     shieldFlashRef.current = 0
     trailRef.current = []
-    layoutSnapshotRef.current = computeMonsterLayout(word, MONSTER_SPAWN_X, failCount)
+    textMetricsRef.current = null
+    textMetricsWordIdRef.current = ''
+    growPunchStartRef.current = 0
+    wordPopStartRef.current = 0
+    prevWordVisibleRef.current = false
+    layoutSnapshotRef.current = computeMonsterLayout(word, 0, failCount)
   }, [word.id])
+
+  useEffect(() => {
+    if (failCount > prevFailCountRef.current) {
+      growPunchStartRef.current = performance.now()
+    }
+    prevFailCountRef.current = failCount
+  }, [failCount])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
+    const updateRect = () => {
+      canvasRectRef.current = canvas.getBoundingClientRect()
+    }
+    updateRect()
+    const ro = new ResizeObserver(updateRect)
+    ro.observe(container)
+    window.addEventListener('resize', updateRect)
+    window.addEventListener('scroll', updateRect, { passive: true })
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', updateRect)
+      window.removeEventListener('scroll', updateRect)
+    }
+  }, [])
 
   useEffect(() => {
     const img = new Image()
@@ -132,6 +178,10 @@ export function GameCanvas({
     const prev = prevStatusRef.current
     prevStatusRef.current = gameStatus
     if (prev === gameStatus) return
+    if (gameStatus === 'success') {
+      successFlashStartRef.current = performance.now()
+      return
+    }
     if (gameStatus !== 'fail') return
 
     const layout = layoutSnapshotRef.current
@@ -143,7 +193,7 @@ export function GameCanvas({
       startMs: performance.now(),
     }
     shieldFlashRef.current = performance.now()
-    monsterXRef.current = Math.min(MONSTER_SPAWN_X, monsterXRef.current + 36 + failCount * 14)
+    approachRef.current = Math.max(0, approachRef.current - 0.07 - failCount * 0.025)
     if (!reduceMotion) setShakeKey((k) => k + 1)
   }, [gameStatus, failCount, wordZone.wordY, reduceMotion])
 
@@ -152,12 +202,24 @@ export function GameCanvas({
     if (!canvas) return
 
     const toCanvasXY = (clientX: number, clientY: number) => {
-      const r = canvas.getBoundingClientRect()
+      const r = canvasRectRef.current ?? canvas.getBoundingClientRect()
       const sx = Math.max(1e-6, r.width / CANVAS_WIDTH)
       const sy = Math.max(1e-6, r.height / CANVAS_HEIGHT)
       const x = (clientX - r.left) / sx
       const y = (clientY - r.top) / sy
       return { x, y }
+    }
+
+    const pushTrailPoint = (x: number, y: number, now: number) => {
+      const trail = trailRef.current
+      const last = trail[trail.length - 1]
+      if (last) {
+        const dx = x - last.x
+        const dy = y - last.y
+        if (dx * dx + dy * dy < TRAIL_MIN_DIST_SQ) return
+      }
+      trail.push({ x, y, t: now })
+      if (trail.length > MAX_TRAIL_POINTS) trail.shift()
     }
 
     const begin = (clientX: number, clientY: number) => {
@@ -176,10 +238,7 @@ export function GameCanvas({
       gestureCurrentRef.current = p
       laserXRef.current = p.x
       lastTouchXRef.current = p.x
-      const now = performance.now()
-      trailRef.current.push({ x: p.x, y: p.y, t: now })
-      // 더 부드러운 잔상(포인트 수 증가)
-      if (trailRef.current.length > 140) trailRef.current.shift()
+      pushTrailPoint(p.x, p.y, performance.now())
     }
 
     const end = (clientX: number, clientY: number) => {
@@ -191,7 +250,7 @@ export function GameCanvas({
 
       if (!start) return
       const dy = Math.abs(p.y - start.y)
-      if (dy > 30) {
+      if (dy > 30 && isWordSlashable(approachRef.current)) {
         onSlashAttempt(p.x, layoutSnapshotRef.current)
       }
       gestureStartRef.current = null
@@ -251,40 +310,13 @@ export function GameCanvas({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1))
+    const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, Math.floor(window.devicePixelRatio || 1)))
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     let raf = 0
     let lastFrameMs = performance.now()
 
     const drawBackground = (layout: MonsterLayoutSnapshot) => {
-      const parallax = (MONSTER_SPAWN_X - layout.monsterX) * 0.12
-
-      const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT)
-      grad.addColorStop(0, '#0c1222')
-      grad.addColorStop(0.55, '#111827')
-      grad.addColorStop(1, '#1a0a0a')
-      ctx.fillStyle = grad
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-
-      ctx.save()
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.06)'
-      ctx.lineWidth = 1
-      const gridOffset = parallax % 40
-      for (let x = -40 + gridOffset; x <= CANVAS_WIDTH + 40; x += 40) {
-        ctx.beginPath()
-        ctx.moveTo(x + 0.5, 0)
-        ctx.lineTo(x + 0.5, CANVAS_HEIGHT)
-        ctx.stroke()
-      }
-      for (let y = 0; y <= CANVAS_HEIGHT; y += 40) {
-        ctx.beginPath()
-        ctx.moveTo(0, y + 0.5)
-        ctx.lineTo(CANVAS_WIDTH, y + 0.5)
-        ctx.stroke()
-      }
-      ctx.restore()
-
       ctx.save()
       const hg = ctx.createRadialGradient(
         layout.monsterX,
@@ -294,32 +326,22 @@ export function GameCanvas({
         wordZone.wordY,
         280 + layout.approachProgress * 80,
       )
-      hg.addColorStop(0, `rgba(250, 204, 21, ${0.06 + layout.approachProgress * 0.1})`)
+      hg.addColorStop(0, `rgba(250, 204, 21, ${0.04 + layout.approachProgress * 0.06})`)
       hg.addColorStop(1, 'rgba(0,0,0,0)')
       ctx.fillStyle = hg
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
       ctx.restore()
     }
 
-    const drawVignette = (layout: MonsterLayoutSnapshot) => {
-      const intensity = 0.25 + layout.approachProgress * 0.45 + failCount * 0.08
-      const vg = ctx.createRadialGradient(
-        CANVAS_WIDTH / 2,
-        wordZone.wordY,
-        CANVAS_WIDTH * 0.22,
-        CANVAS_WIDTH / 2,
-        wordZone.wordY,
-        CANVAS_WIDTH * 0.72,
-      )
-      vg.addColorStop(0, 'rgba(0,0,0,0)')
-      vg.addColorStop(0.65, `rgba(40, 8, 8, ${intensity * 0.35})`)
-      vg.addColorStop(1, `rgba(80, 10, 10, ${intensity})`)
-      ctx.fillStyle = vg
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-    }
-
     const drawMonsterBody = (layout: MonsterLayoutSnapshot, xCenter = layout.monsterX) => {
-      const totalScale = layout.totalScale
+      const growAge = performance.now() - growPunchStartRef.current
+      let growMul = 1
+      if (!reduceMotion && growAge >= 0 && growAge < 420) {
+        const t = growAge / 420
+        growMul = 1 + 0.18 * Math.sin(t * Math.PI)
+      }
+
+      const totalScale = layout.totalScale * growMul
       const monsterImg = monsterImgRef.current
       const aspect =
         monsterImg?.complete && monsterImg.naturalWidth > 0
@@ -330,9 +352,12 @@ export function GameCanvas({
       const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
       const w = baseW * totalScale
       const h = w * aspect
-      const yCenter = wordZone.wordY + 22 * totalScale
+      const bob =
+        reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * layout.approachProgress
+      const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob
       const x = xCenter - w / 2
       const y = yCenter - h / 2
+      const depthAlpha = 0.5 + 0.5 * layout.approachProgress
 
       ctx.save()
 
@@ -363,7 +388,7 @@ export function GameCanvas({
 
       if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
         ctx.save()
-        ctx.globalAlpha = 1
+        ctx.globalAlpha = depthAlpha
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
         ctx.drawImage(monsterImg, x, y, w, h)
@@ -380,39 +405,60 @@ export function GameCanvas({
       ctx.restore()
     }
 
-    const drawMotionTrail = (layout: MonsterLayoutSnapshot, speed: number) => {
-      if (gameStatus !== 'playing' || speed < 40) return
-      const ghostCount = 3
-      for (let i = ghostCount; i >= 1; i--) {
-        const offset = i * (8 + speed * 0.012)
-        ctx.save()
-        ctx.globalAlpha = 0.06 * (ghostCount - i + 1)
-        drawMonsterBody(layout, layout.monsterX + offset)
-        ctx.restore()
-      }
-    }
-
-    const drawWordOnMonster = (layout: MonsterLayoutSnapshot) => {
+    const drawWordOnMonster = (layout: MonsterLayoutSnapshot, textMetrics: WordTextMetrics) => {
       const text = word.full.toUpperCase()
       ctx.save()
-      // 단어 텍스트는 고정 크기(몬스터 스케일의 영향 없음)
-      ctx.font = `900 ${WORD_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`
+      ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
 
       const len = Math.max(1, text.length)
-      const baseWordWidth = layout.canvasWordWidth
-      const charW = baseWordWidth / len
       const x0 = layout.wordStartX
       const y = wordZone.wordY
+      const heated = failCount > 0
+      const totalW = textMetrics.totalWidth
+      const textAlpha = getWordRevealAlpha(layout.approachProgress)
+      if (textAlpha <= 0) {
+        ctx.restore()
+        return
+      }
 
-      ctx.shadowColor = failCount > 0 ? 'rgba(251, 146, 60, 0.8)' : 'rgba(250, 204, 21, 0.4)'
-      ctx.shadowBlur = 12 + failCount * 4 + layout.approachProgress * 8
+      const popAge = performance.now() - wordPopStartRef.current
+      let popScale = 1
+      if (!reduceMotion && popAge >= 0 && popAge < 450) {
+        const t = popAge / 450
+        popScale = t < 0.55 ? 0.35 + (t / 0.55) * 0.8 : 1.15 - ((t - 0.55) / 0.45) * 0.15
+      }
 
+      ctx.save()
+      ctx.translate(layout.monsterX, y)
+      ctx.scale(popScale, popScale)
+      ctx.translate(-layout.monsterX, -y)
+
+      const padW = totalW + 56
+      const padH = WORD_FONT_SIZE + 40
+      const padX = x0 - 28
+      const padY = y - padH / 2
+      ctx.save()
+      ctx.globalAlpha = textAlpha
+      roundRect(ctx, padX, padY, padW, padH, 18)
+      ctx.fillStyle = heated ? 'rgba(69, 26, 3, 0.55)' : 'rgba(0, 0, 0, 0.52)'
+      ctx.fill()
+      ctx.strokeStyle = heated ? 'rgba(251, 146, 60, 0.35)' : 'rgba(255, 255, 255, 0.12)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.restore()
+
+      ctx.save()
+      ctx.globalAlpha = textAlpha
       for (let i = 0; i < len; i++) {
         const ch = text[i]!
-        ctx.fillStyle = failCount > 0 ? '#fef3c7' : '#ffffff'
-        ctx.fillText(ch, x0 + i * charW + charW * 0.18, y)
+        const cx = x0 + (textMetrics.charLeftOffsets[i] ?? 0)
+        drawExtrudedChar(ctx, ch, cx, y, WORD_FONT_SIZE, heated)
       }
+      ctx.restore()
+
+      ctx.save()
+      ctx.globalAlpha = textAlpha
 
       if (gameStatus !== 'success') {
         ctx.strokeStyle = 'rgba(255,255,255,0.2)'
@@ -426,7 +472,6 @@ export function GameCanvas({
       }
 
       if (gameStatus === 'fail' && failCount >= 1) {
-        ctx.save()
         const alpha = failCount >= 2 ? 0.55 + 0.45 * Math.sin(performance.now() / 120) : 0.6
         ctx.strokeStyle = `rgba(250, 204, 21, ${alpha.toFixed(3)})`
         ctx.lineWidth = 4
@@ -434,11 +479,9 @@ export function GameCanvas({
         ctx.moveTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneTop + 8)
         ctx.lineTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneBottom - 8)
         ctx.stroke()
-        ctx.restore()
       }
 
       if (gameStatus === 'hint') {
-        ctx.save()
         ctx.fillStyle = 'rgba(34, 211, 238, 0.9)'
         ctx.font = `18px ui-sans-serif, system-ui, Segoe UI, Roboto, Arial`
         ctx.textAlign = 'center'
@@ -447,24 +490,25 @@ export function GameCanvas({
           layout.monsterX,
           wordZone.wordZoneBottom + 22,
         )
-        ctx.restore()
       }
+
+      ctx.restore()
+      ctx.restore()
 
       ctx.restore()
     }
 
-    const drawMonster = (layout: MonsterLayoutSnapshot, speed: number) => {
-      drawMotionTrail(layout, speed)
+    const drawMonster = (layout: MonsterLayoutSnapshot, textMetrics: WordTextMetrics) => {
       drawMonsterBody(layout)
-      drawWordOnMonster(layout)
+      drawWordOnMonster(layout, textMetrics)
     }
 
     const drawSkeleton = () => {
       ctx.save()
-      roundRect(ctx, 160, wordZone.wordY - 46, 480, 92, 22)
+      roundRect(ctx, CANVAS_WIDTH / 2 - 240, wordZone.wordY - 46, 480, 92, 22)
       ctx.fillStyle = 'rgba(148, 163, 184, 0.16)'
       ctx.fill()
-      roundRect(ctx, 240, wordZone.wordY - 16, 320, 34, 12)
+      roundRect(ctx, CANVAS_WIDTH / 2 - 160, wordZone.wordY - 16, 320, 34, 12)
       ctx.fillStyle = 'rgba(148, 163, 184, 0.22)'
       ctx.fill()
       ctx.restore()
@@ -472,69 +516,59 @@ export function GameCanvas({
 
     const drawNeonLaser = () => {
       const now = performance.now()
-      // 잔상 길이(시간) 증가
-      const trailLifeMs = 1650
-      trailRef.current = trailRef.current.filter((p) => now - p.t < trailLifeMs)
+      const trail = trailRef.current
+      let prune = 0
+      while (prune < trail.length && now - trail[prune]!.t >= TRAIL_LIFE_MS) prune++
+      if (prune > 0) trail.splice(0, prune)
 
-      const points = trailRef.current
-      if (points.length >= 2) {
-        const maxW = 12
-        const minW = 2
-        for (let i = 1; i < points.length; i++) {
-          const a = points[i - 1]!
-          const b = points[i]!
-          const age = now - b.t
-          const life = Math.max(0, 1 - age / trailLifeMs)
-          const progress = i / (points.length - 1)
-          const width = minW + (maxW - minW) * (1 - progress) * (0.55 + 0.45 * life)
+      if (trail.length < 2) return
 
-          // Outer glow (purple)
-          ctx.save()
-          ctx.globalCompositeOperation = 'lighter'
-          ctx.lineCap = 'round'
-          ctx.shadowColor = '#a855f7'
-          ctx.shadowBlur = 26 * life
-          ctx.strokeStyle = `rgba(168, 85, 247, ${(life * 0.16).toFixed(3)})`
-          ctx.lineWidth = width + 6
-          ctx.beginPath()
-          ctx.moveTo(a.x, a.y)
-          ctx.lineTo(b.x, b.y)
-          ctx.stroke()
-          ctx.restore()
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.globalCompositeOperation = 'lighter'
 
-          // Neon core (gradient)
-          ctx.save()
-          ctx.globalCompositeOperation = 'lighter'
-          ctx.lineCap = 'round'
-          const lg = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
-          lg.addColorStop(0, `rgba(34, 211, 238, ${(life * 0.65).toFixed(3)})`)
-          lg.addColorStop(0.5, `rgba(250, 204, 21, ${(life * 0.75).toFixed(3)})`)
-          lg.addColorStop(1, `rgba(244, 114, 182, ${(life * 0.6).toFixed(3)})`)
-          ctx.shadowColor = '#facc15'
-          ctx.shadowBlur = 18 * life
-          ctx.strokeStyle = lg
-          ctx.lineWidth = width
-          ctx.beginPath()
-          ctx.moveTo(a.x, a.y)
-          ctx.lineTo(b.x, b.y)
-          ctx.stroke()
-          ctx.restore()
+      const hotStreak = streak >= 3
+      const warmStreak = streak >= 2
 
-          // White hot highlight
-          ctx.save()
-          ctx.globalCompositeOperation = 'lighter'
-          ctx.lineCap = 'round'
-          ctx.shadowColor = '#ffffff'
-          ctx.shadowBlur = 10 * life
-          ctx.strokeStyle = `rgba(255,255,255, ${(life * 0.35).toFixed(3)})`
-          ctx.lineWidth = Math.max(1.5, width * 0.25)
-          ctx.beginPath()
-          ctx.moveTo(a.x, a.y)
-          ctx.lineTo(b.x, b.y)
-          ctx.stroke()
-          ctx.restore()
-        }
+      for (let i = 1; i < trail.length; i++) {
+        const a = trail[i - 1]!
+        const b = trail[i]!
+        const life = Math.max(0, 1 - (now - b.t) / TRAIL_LIFE_MS)
+        if (life <= 0) continue
+        const progress = i / (trail.length - 1)
+        const coreW = 2 + 7 * (1 - progress) * life
+
+        const glowR = hotStreak ? 56 : warmStreak ? 168 : 168
+        const glowG = hotStreak ? 189 : warmStreak ? 85 : 85
+        const glowB = hotStreak ? 248 : warmStreak ? 247 : 247
+        const coreR = hotStreak ? 253 : warmStreak ? 251 : 250
+        const coreG = hotStreak ? 224 : warmStreak ? 191 : 204
+        const coreB = hotStreak ? 71 : warmStreak ? 36 : 21
+
+        ctx.strokeStyle = `rgba(${glowR}, ${glowG}, ${glowB}, ${0.14 * life})`
+        ctx.lineWidth = coreW + 8
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+
+        ctx.strokeStyle = `rgba(${coreR}, ${coreG}, ${coreB}, ${(hotStreak ? 0.78 : 0.62) * life})`
+        ctx.lineWidth = coreW
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(hotStreak ? 0.42 : 0.28) * life})`
+        ctx.lineWidth = Math.max(1.5, coreW * 0.35)
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
       }
+
+      ctx.restore()
     }
 
     const drawDeflection = () => {
@@ -555,8 +589,6 @@ export function GameCanvas({
       ctx.lineCap = 'round'
       ctx.strokeStyle = `rgba(250, 204, 21, ${(1 - t).toFixed(3)})`
       ctx.lineWidth = 5
-      ctx.shadowColor = '#fbbf24'
-      ctx.shadowBlur = 16
       ctx.beginPath()
       ctx.moveTo(d.x, d.y)
       ctx.lineTo(x2, y2)
@@ -573,6 +605,16 @@ export function GameCanvas({
       ctx.restore()
     }
 
+    const drawSuccessFlash = () => {
+      const age = performance.now() - successFlashStartRef.current
+      if (age < 0 || age > 220) return
+      const alpha = 0.38 * (1 - age / 220)
+      ctx.save()
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+      ctx.restore()
+    }
+
     const drawInstruction = (layout: MonsterLayoutSnapshot) => {
       ctx.save()
       ctx.font = `18px ui-sans-serif, system-ui, Segoe UI, Roboto, Arial`
@@ -585,7 +627,7 @@ export function GameCanvas({
           : layout.approachProgress < 0.45
             ? 'A monster is approaching… slash the morpheme boundary!'
             : 'Slash the morpheme boundary!'
-      ctx.fillText(msg, CANVAS_WIDTH / 2, 550)
+      ctx.fillText(msg, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 110)
       ctx.restore()
     }
 
@@ -596,30 +638,41 @@ export function GameCanvas({
       const speed = getMonsterSpeedPxPerSec(failCount)
 
       if (gameStatus === 'playing') {
-        monsterXRef.current -= speed * deltaSec
-        monsterXRef.current = Math.max(MONSTER_TARGET_X, monsterXRef.current)
+        approachRef.current += (speed / APPROACH_EQUIV_DISTANCE_PX) * deltaSec
+        approachRef.current = Math.min(1, approachRef.current)
       }
 
-      const layout = computeMonsterLayout(word, monsterXRef.current, failCount)
+      if (textMetricsWordIdRef.current !== word.id || !textMetricsRef.current) {
+        textMetricsRef.current = measureWordText(ctx, word.full)
+        textMetricsWordIdRef.current = word.id
+      }
+      const textMetrics = textMetricsRef.current
+      const layout = computeMonsterLayout(word, approachRef.current, failCount, textMetrics)
       layoutSnapshotRef.current = layout
 
-      if (onLayoutSnapshot && now - lastLayoutEmitRef.current > 66) {
+      const wordVisible = getWordRevealAlpha(layout.approachProgress) > 0
+      if (wordVisible && !prevWordVisibleRef.current) {
+        wordPopStartRef.current = now
+      }
+      prevWordVisibleRef.current = wordVisible
+
+      if (onLayoutSnapshot && now - lastLayoutEmitRef.current > 120) {
         lastLayoutEmitRef.current = now
         onLayoutSnapshot(layout)
       }
 
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
       drawBackground(layout)
-      drawVignette(layout)
 
       if (loading) {
         drawSkeleton()
       } else if (gameStatus !== 'success') {
-        drawMonster(layout, speed)
+        drawMonster(layout, textMetrics)
       }
 
       drawNeonLaser()
       drawDeflection()
+      drawSuccessFlash()
       drawInstruction(layout)
 
       if (import.meta.env.DEV && devOverlay) {
@@ -645,7 +698,7 @@ export function GameCanvas({
         ctx.font = '12px ui-monospace, monospace'
         ctx.textBaseline = 'top'
         ctx.fillText(
-          `monsterX=${layout.monsterX.toFixed(1)} progress=${(layout.approachProgress * 100).toFixed(0)}% scale=${layout.totalScale.toFixed(2)} speed=${speed.toFixed(0)}px/s`,
+          `approach=${(layout.approachProgress * 100).toFixed(0)}% scale=${layout.totalScale.toFixed(2)} speed=${speed.toFixed(0)}px/s`,
           10,
           10,
         )
@@ -667,39 +720,93 @@ export function GameCanvas({
     failScale,
     wordZone,
     onLayoutSnapshot,
+    streak,
+    reduceMotion,
   ])
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden">
-      <div
-        className="absolute left-1/2 top-0 origin-top"
-        style={{
-          transform: `translateX(-50%) scale(${scale})`,
-          width: `${CANVAS_WIDTH}px`,
-          height: `${CANVAS_HEIGHT}px`,
-        }}
+      <motion.div
+        key={shakeKey}
+        className="h-full w-full"
+        animate={
+          reduceMotion || shakeKey === 0
+            ? { x: 0 }
+            : { x: [0, -8, 8, -5, 5, 0] }
+        }
+        transition={{ duration: 0.38, ease: 'easeOut' }}
       >
-        <motion.div
-          key={shakeKey}
-          className="h-full w-full"
-          animate={
-            reduceMotion || shakeKey === 0
-              ? { x: 0 }
-              : { x: [0, -8, 8, -5, 5, 0] }
-          }
-          transition={{ duration: 0.38, ease: 'easeOut' }}
-        >
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className="block touch-none select-none"
-            aria-label="Laser Hunter Game Canvas"
-          />
-        </motion.div>
-      </div>
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_WIDTH}
+          height={CANVAS_HEIGHT}
+          className="block h-full w-full touch-none select-none"
+          aria-label="Laser Hunter Game Canvas"
+        />
+      </motion.div>
     </div>
   )
+}
+
+function drawExtrudedChar(
+  ctx: CanvasRenderingContext2D,
+  ch: string,
+  x: number,
+  y: number,
+  fontSize: number,
+  heated: boolean,
+) {
+  ctx.save()
+  applyWordFont(ctx, fontSize)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.miterLimit = 2
+
+  const depth = 5
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+  ctx.fillText(ch, x + depth + 2, y + depth + 3)
+
+  for (let d = depth; d >= 1; d--) {
+    const t = d / depth
+    if (heated) {
+      const r = Math.round(88 + t * 42)
+      const g = Math.round(32 + t * 22)
+      const b = Math.round(8 + t * 6)
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+    } else {
+      const shade = Math.round(18 + t * 38)
+      ctx.fillStyle = `rgb(${shade}, ${shade + 6}, ${shade + 14})`
+    }
+    ctx.fillText(ch, x + d, y + d)
+  }
+
+  ctx.lineWidth = 10
+  ctx.strokeStyle = heated ? '#431407' : '#000000'
+  ctx.strokeText(ch, x, y)
+
+  ctx.lineWidth = 2.5
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+  ctx.strokeText(ch, x, y)
+
+  const face = ctx.createLinearGradient(x, y - fontSize * 0.48, x, y + fontSize * 0.32)
+  if (heated) {
+    face.addColorStop(0, '#fffbeb')
+    face.addColorStop(0.55, '#fef3c7')
+    face.addColorStop(1, '#fde68a')
+  } else {
+    face.addColorStop(0, '#ffffff')
+    face.addColorStop(0.6, '#ffffff')
+    face.addColorStop(1, '#f8fafc')
+  }
+  ctx.fillStyle = face
+  ctx.fillText(ch, x, y)
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.38)'
+  ctx.fillText(ch, x - 1, y - 2.5)
+
+  ctx.restore()
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

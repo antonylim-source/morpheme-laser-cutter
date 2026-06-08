@@ -2,7 +2,11 @@
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        display: ['Fredoka', 'ui-rounded', 'Segoe UI', 'system-ui', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 }

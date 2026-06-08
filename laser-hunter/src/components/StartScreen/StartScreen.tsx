@@ -1,6 +1,11 @@
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { AgeMode } from '../../types/game.types'
-import { AGE_TOLERANCE } from '../../constants/gameConfig'
+
+const AGE_LABELS: Record<AgeMode, { emoji: string; label: string }> = {
+  young: { emoji: '🐣', label: 'Easy' },
+  standard: { emoji: '⚡', label: 'Normal' },
+  advanced: { emoji: '🔥', label: 'Hard' },
+}
 
 export function StartScreen({
   visible,
@@ -21,86 +26,77 @@ export function StartScreen({
     <AnimatePresence>
       {visible ? (
         <motion.div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur"
+          className="absolute inset-0 z-50 flex items-center justify-center bg-sky-900/50 backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: reduce ? 0.2 : 0.35 }}
         >
           <motion.div
-            className="w-[min(560px,92%)] rounded-2xl border border-slate-800 bg-slate-950/80 p-6 text-center shadow-xl"
-            initial={{ y: 14, scale: 0.98, opacity: 0 }}
+            className="bubble-panel w-[min(520px,92%)] bg-gradient-to-b from-sky-400 to-blue-500 p-6 text-center"
+            initial={{ y: 20, scale: 0.95, opacity: 0 }}
             animate={{ y: 0, scale: 1, opacity: 1 }}
-            exit={{ y: 8, scale: 0.99, opacity: 0 }}
+            exit={{ y: 10, scale: 0.98, opacity: 0 }}
             transition={{ duration: reduce ? 0.2 : 0.45, ease: 'easeOut' }}
           >
-            <div className="text-3xl font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-yellow-300">
-              ⚡ Laser Hunter
+            <div className="animate-float text-6xl">👾</div>
+            <div className="font-display mt-2 text-4xl font-extrabold text-white drop-shadow-[0_3px_0_rgba(0,0,0,0.2)]">
+              Laser Hunter
             </div>
-            <div className="mt-2 text-sm text-slate-300">Morpheme Laser Cutter · Compound Word Training</div>
-            <div className="mt-4 rounded-xl border border-orange-500/30 bg-orange-950/30 px-4 py-2 text-xs text-orange-200">
-              Slice compound monsters before they reach you! Wrong cuts make them grow &amp; speed up.
+            <div className="mt-2 text-base font-semibold text-sky-100">
+              Slice compound word monsters with your laser!
             </div>
 
-            <div className="mt-6">
-              <div className="text-xs font-semibold tracking-widest text-slate-400">AGE MODE (tolerance)</div>
+            <div className="bubble-panel mt-4 border-amber-200/80 bg-gradient-to-r from-amber-100 to-yellow-100 px-4 py-3 text-sm font-bold text-amber-900">
+              🎯 Slice the <span className="text-orange-600">middle</span> of the word from top to bottom!
+              <br />
+              ❌ Wrong cuts make the monster bigger and faster!
+            </div>
+
+            <div className="mt-5">
+              <div className="text-sm font-bold text-white/90">Pick your level</div>
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                <ModeButton
-                  active={ageMode === 'young'}
-                  label={`Young (±${AGE_TOLERANCE.young}px)`}
-                  onClick={() => setAgeMode('young')}
-                />
-                <ModeButton
-                  active={ageMode === 'standard'}
-                  label={`Standard (±${AGE_TOLERANCE.standard}px)`}
-                  onClick={() => setAgeMode('standard')}
-                />
-                <ModeButton
-                  active={ageMode === 'advanced'}
-                  label={`Advanced (±${AGE_TOLERANCE.advanced}px)`}
-                  onClick={() => setAgeMode('advanced')}
-                />
+                {(['young', 'standard', 'advanced'] as AgeMode[]).map((mode) => {
+                  const { emoji, label } = AGE_LABELS[mode]
+                  const active = ageMode === mode
+                  return (
+                    <motion.button
+                      key={mode}
+                      type="button"
+                      onClick={() => setAgeMode(mode)}
+                      whileTap={reduce ? {} : { scale: 0.95 }}
+                      className={[
+                        'rounded-2xl border-[3px] px-4 py-2 text-sm font-extrabold transition-transform',
+                        active
+                          ? 'border-white bg-yellow-300 text-amber-900 shadow-[0_4px_0_rgba(0,0,0,0.2)] scale-105'
+                          : 'border-white/60 bg-white/25 text-white hover:bg-white/40',
+                      ].join(' ')}
+                    >
+                      {emoji} {label}
+                    </motion.button>
+                  )
+                })}
               </div>
             </div>
 
-            <button
+            <motion.button
               type="button"
               disabled={loading}
               onClick={onStart}
+              whileHover={loading || reduce ? {} : { scale: 1.04 }}
+              whileTap={loading ? {} : { scale: 0.97 }}
               className={[
-                'mt-6 w-full rounded-xl px-4 py-3 text-sm font-extrabold tracking-wide',
+                'btn-bounce font-display mt-6 w-full rounded-2xl border-[4px] border-white px-4 py-4 text-xl font-extrabold tracking-wide shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform',
                 loading
-                  ? 'cursor-not-allowed bg-slate-800 text-slate-400'
-                  : 'bg-violet-600 text-white hover:bg-violet-500 active:bg-violet-700',
+                  ? 'cursor-not-allowed bg-slate-300 text-slate-500'
+                  : 'bg-gradient-to-b from-lime-300 to-green-500 text-white hover:brightness-105 active:brightness-95',
               ].join(' ')}
             >
-              {loading ? 'LOADING IMAGES…' : 'START GAME'}
-            </button>
-
-            <div className="mt-3 text-xs text-slate-500">
-              Tip: SPACE(항상 성공) · H(힌트) · R(리셋)
-            </div>
+              {loading ? '⏳ Loading…' : '🚀 Start!'}
+            </motion.button>
           </motion.div>
         </motion.div>
       ) : null}
     </AnimatePresence>
   )
 }
-
-function ModeButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'rounded-xl border px-3 py-2 text-xs font-semibold',
-        active
-          ? 'border-yellow-300/50 bg-yellow-300 text-slate-900'
-          : 'border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800/60',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  )
-}
-

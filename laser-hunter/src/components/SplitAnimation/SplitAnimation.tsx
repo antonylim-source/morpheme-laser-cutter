@@ -17,7 +17,7 @@ export function SplitAnimation({ word, status, failCount }: Props) {
   const rightText = text.slice(cut)
 
   const sparkles = useMemo(() => {
-    return Array.from({ length: 16 }).map((_, i) => ({
+    return Array.from({ length: 24 }).map((_, i) => ({
       id: i,
       dx: (Math.random() - 0.5) * 180,
       dy: -40 - Math.random() * 140,

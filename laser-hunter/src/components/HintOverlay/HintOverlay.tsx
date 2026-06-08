@@ -27,45 +27,38 @@ export function HintOverlay({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0.25 : 0.45 }}
           >
-            {/* Level 1: orange glow border around entire word zone */}
             {level >= 1 ? (
               <motion.div
-                className="absolute left-[10%] top-[33%] h-[22%] w-[80%] rounded-3xl border-2 border-orange-400/60"
-                animate={
-                  reduce
-                    ? { opacity: 0.75 }
-                    : { opacity: [0.35, 0.8, 0.35] }
-                }
+                className="absolute left-[10%] top-[33%] h-[22%] w-[80%] rounded-3xl border-[3px] border-orange-300"
+                animate={reduce ? { opacity: 0.75 } : { opacity: [0.4, 0.95, 0.4] }}
                 transition={{ duration: 0.65, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
-                style={{ boxShadow: '0 0 28px rgba(251, 146, 60, 0.25)' }}
+                style={{ boxShadow: '0 0 32px rgba(251, 191, 36, 0.45)' }}
               />
             ) : null}
 
-            {/* Level 2: flashing yellow dots at boundary position */}
             {level >= 2 ? (
               <motion.div
-                className="absolute top-[33%] h-[22%] w-6 -translate-x-1/2"
+                className="absolute top-[33%] h-[22%] w-8 -translate-x-1/2"
                 style={{ left: `${boundaryX01 * 100}%` }}
-                animate={reduce ? { opacity: 0.9 } : { opacity: [0.2, 1, 0.2] }}
+                animate={reduce ? { opacity: 0.9 } : { opacity: [0.3, 1, 0.3] }}
                 transition={{ duration: 0.45, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
               >
-                <div className="absolute left-1/2 top-2 h-2 w-2 -translate-x-1/2 rounded-full bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.75)]" />
-                <div className="absolute left-1/2 bottom-2 h-2 w-2 -translate-x-1/2 rounded-full bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.75)]" />
+                <div className="absolute left-1/2 top-1 h-3 w-3 -translate-x-1/2 rounded-full bg-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.9)]" />
+                <div className="absolute bottom-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.9)]" />
               </motion.div>
             ) : null}
 
-            {/* Level 3: boundary line fully visible + "| ← here" text indicator */}
             {level >= 3 ? (
               <div className="absolute inset-0">
                 <div
-                  className="absolute top-[33%] h-[22%] w-px bg-emerald-300/90 shadow-[0_0_22px_rgba(52,211,153,0.55)]"
+                  className="absolute top-[33%] h-[22%] w-1 rounded-full bg-emerald-300 shadow-[0_0_24px_rgba(52,211,153,0.7)]"
                   style={{ left: `${boundaryX01 * 100}%` }}
                 />
                 <div
-                  className="absolute top-[55%] -translate-x-1/2 rounded-full bg-emerald-950/70 px-3 py-1 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-400/40"
+                  className="font-display absolute top-[55%] -translate-x-1/2 rounded-full border-[3px] border-white bg-emerald-500 px-4 py-1.5 text-sm font-extrabold text-white shadow-lg"
                   style={{ left: `${boundaryX01 * 100}%` }}
                 >
-                  | ← here
+                  ✂️ 여기를 베어요!
                 </div>
               </div>
             ) : null}
@@ -73,57 +66,54 @@ export function HintOverlay({
         ) : null}
       </AnimatePresence>
 
-      {/* Modal overlay for start / hint only (success/fail use canvas + SplitAnimation) */}
+      {/* Modal overlay for start / hint only */}
       <AnimatePresence>
         {state.status === 'idle' || state.status === 'hint' ? (
           <motion.div
-            className="absolute inset-0 z-40 flex items-center justify-center bg-zinc-950/35"
+            className="absolute inset-0 z-40 flex items-center justify-center bg-sky-900/40"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <motion.div
-              className="w-[min(520px,92%)] rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5 text-center shadow-xl backdrop-blur"
+              className="bubble-panel w-[min(500px,92%)] bg-gradient-to-b from-indigo-400 to-violet-500 p-5 text-center"
               initial={{ y: 12, scale: 0.98, opacity: 0 }}
               animate={{ y: 0, scale: 1, opacity: 1 }}
               exit={{ y: 8, scale: 0.99, opacity: 0 }}
               transition={{ duration: reduce ? 0.25 : 0.45 }}
             >
-              <div className="text-sm font-semibold text-zinc-200">
-                {state.status === 'hint' ? '정답 힌트' : '준비'}
+              <div className="text-3xl">{state.status === 'hint' ? '💡' : '👀'}</div>
+              <div className="font-display mt-1 text-lg font-extrabold text-white">
+                {state.status === 'hint' ? '정답 힌트!' : '이번 괴물 단어'}
               </div>
 
-              <div className="mt-2 text-2xl font-extrabold tracking-wide text-zinc-100">
+              <div className="font-display mt-3 text-3xl font-extrabold tracking-wide text-yellow-200 drop-shadow-md">
                 {state.currentWord.full.toUpperCase()}
               </div>
 
-              <div className="mt-2 text-sm text-zinc-400">
-                목표: <span className="font-semibold text-zinc-200">{state.currentWord.morpheme1}</span>
-                <span className="mx-2 text-zinc-600">|</span>
-                <span className="font-semibold text-zinc-200">{state.currentWord.morpheme2}</span>
+              <div className="mt-3 text-base font-semibold text-indigo-100">
+                <span className="rounded-lg bg-white/25 px-2 py-0.5">{state.currentWord.morpheme1}</span>
+                <span className="mx-2 text-white/60">+</span>
+                <span className="rounded-lg bg-white/25 px-2 py-0.5">{state.currentWord.morpheme2}</span>
               </div>
 
               {state.status === 'hint' ? (
-                <div className="mt-3 text-sm">
-                  <div className="font-semibold text-cyan-300">정답 힌트</div>
-                  <div className="mt-1 text-sm text-zinc-300">
-                    {state.currentWord.morpheme1}
-                    <span className="mx-2 text-zinc-500">|</span>
-                    {state.currentWord.morpheme2}
-                  </div>
+                <div className="bubble-panel mt-3 border-cyan-200/80 bg-cyan-100/90 px-3 py-2 text-sm font-bold text-cyan-900">
+                  ✨ 이렇게 나눠요: {state.currentWord.morpheme1} | {state.currentWord.morpheme2}
                 </div>
-              ) : null}
+              ) : (
+                <div className="mt-3 text-sm font-semibold text-white/90">
+                  괴물이 다가오면 단어 가운데를 쓱— 베어보세요!
+                </div>
+              )}
 
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={onStart}
-                  className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 active:bg-violet-700"
-                >
-                  {state.status === 'hint' ? '다음' : '시작'}
-                </button>
-                <div className="text-xs text-zinc-500">화면을 위에서 아래로 베어주세요</div>
-              </div>
+              <button
+                type="button"
+                onClick={onStart}
+                className="btn-bounce font-display mt-4 rounded-2xl border-[3px] border-white bg-gradient-to-b from-lime-300 to-green-500 px-8 py-2.5 text-lg font-extrabold text-white shadow-[0_4px_0_rgba(0,0,0,0.2)]"
+              >
+                {state.status === 'hint' ? '다음 괴물 →' : '준비 완료!'}
+              </button>
             </motion.div>
           </motion.div>
         ) : null}
@@ -131,4 +121,3 @@ export function HintOverlay({
     </>
   )
 }
-

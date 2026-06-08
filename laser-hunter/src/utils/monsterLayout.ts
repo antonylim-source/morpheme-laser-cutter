@@ -1,12 +1,25 @@
 import {
   CANVAS_WIDTH,
-  WORD_FONT_SIZE,
+  MONSTER_APPROACH_MIN_SCALE,
+  WORD_Y_POSITION,
   gameConfig,
 } from '../constants/gameConfig'
 import type { CompoundWord } from '../types/game.types'
+import {
+  estimateWordTextWidth,
+  getBoundaryOffsetX,
+  type WordTextMetrics,
+} from './wordTextMetrics'
 
+export const MONSTER_CENTER_X = CANVAS_WIDTH / 2
+
+/** 기존 가로 돌진과 비슷한 접근 시간(약 4초)을 위한 등가 거리 */
+export const APPROACH_EQUIV_DISTANCE_PX = 920
+
+/** @deprecated depth 접근 방식 — 호환용 */
 export const MONSTER_SPAWN_X = CANVAS_WIDTH + 280
-export const MONSTER_TARGET_X = CANVAS_WIDTH / 2
+/** @deprecated depth 접근 방식 — 호환용 */
+export const MONSTER_TARGET_X = MONSTER_CENTER_X
 
 export type MonsterLayoutSnapshot = {
   monsterX: number
@@ -18,24 +31,27 @@ export type MonsterLayoutSnapshot = {
   totalScale: number
 }
 
+/** @deprecated use estimateWordTextWidth or measureWordText */
 export function getCanvasWordWidth(wordLength: number): number {
-  const len = Math.max(1, wordLength)
-  const approxCharW = WORD_FONT_SIZE * 0.62
-  const naturalWordWidth = len * approxCharW
-  return Math.max(360, Math.min(680, naturalWordWidth))
+  return estimateWordTextWidth(wordLength)
 }
 
-/** 0 = far (spawn), 1 = at player (center) */
-export function getApproachProgress(monsterX: number): number {
-  const span = MONSTER_SPAWN_X - MONSTER_TARGET_X
-  if (span <= 0) return 1
-  return Math.max(0, Math.min(1, 1 - (monsterX - MONSTER_TARGET_X) / span))
-}
-
-/** Smaller when far; full size at center */
+/** 0 = 멀리, 1 = 플레이어 앞 */
 export function getApproachScale(progress: number): number {
-  const min = 0.58
-  return min + (1 - min) * Math.pow(progress, 0.82)
+  const t = Math.max(0, Math.min(1, progress))
+  const min = MONSTER_APPROACH_MIN_SCALE
+  return min + (1 - min) * Math.pow(t, 0.88)
+}
+
+/** 멀 때 위(지평선) → 가까울수록 단어 위치 쪽으로 이동 */
+export function getMonsterVisualCenterY(
+  progress: number,
+  targetWordY: number = WORD_Y_POSITION,
+): number {
+  const t = Math.pow(Math.max(0, Math.min(1, progress)), 0.85)
+  const farY = targetWordY - 115
+  const nearY = targetWordY + 14
+  return farY + (nearY - farY) * t
 }
 
 export function getFailScale(failCount: number): number {
@@ -48,18 +64,20 @@ export function getMonsterSpeedPxPerSec(failCount: number): number {
 
 export function computeMonsterLayout(
   word: CompoundWord,
-  monsterX: number,
+  approachProgress: number,
   failCount: number,
+  textMetrics?: WordTextMetrics,
 ): MonsterLayoutSnapshot {
   const len = Math.max(1, word.full.length)
-  // 텍스트/경계선(판정) 레이아웃은 스케일을 적용하지 않는다.
-  // 몬스터(이미지)만 approach/fail 스케일로 커지게 하려면,
-  // wordStartX/canvasWordWidth/boundaryPixelX는 "고정 폭" 기준이어야 한다.
-  const canvasWordWidth = getCanvasWordWidth(len)
-  const approachProgress = getApproachProgress(monsterX)
-  const totalScale = getApproachScale(approachProgress) * getFailScale(failCount)
+  const progress = Math.max(0, Math.min(1, approachProgress))
+  const canvasWordWidth = textMetrics?.totalWidth ?? estimateWordTextWidth(len)
+  const monsterX = MONSTER_CENTER_X
+  const totalScale = getApproachScale(progress) * getFailScale(failCount)
   const wordStartX = monsterX - canvasWordWidth / 2
-  const boundaryPixelX = (word.boundaryIndex / len) * canvasWordWidth + wordStartX
+  const boundaryOffset = textMetrics
+    ? getBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
+    : (word.boundaryIndex / len) * canvasWordWidth
+  const boundaryPixelX = wordStartX + boundaryOffset
 
   return {
     monsterX,
@@ -67,7 +85,7 @@ export function computeMonsterLayout(
     canvasWordWidth,
     boundaryPixelX,
     boundaryX01: boundaryPixelX / CANVAS_WIDTH,
-    approachProgress,
+    approachProgress: progress,
     totalScale,
   }
 }

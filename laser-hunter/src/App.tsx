@@ -1,17 +1,22 @@
 import { GameCanvas } from './components/GameCanvas'
+import { FeedbackPopup, type FeedbackKind } from './components/FeedbackPopup'
 import { GameOverScreen } from './components/GameOverScreen'
 import { HintOverlay } from './components/HintOverlay'
 import { ScoreBoard } from './components/ScoreBoard'
 import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
-import { CANVAS_WIDTH, WORD_FONT_SIZE } from './constants/gameConfig'
+import { CANVAS_WIDTH, isWordSlashable } from './constants/gameConfig'
+import { estimateWordTextWidth } from './utils/wordTextMetrics'
+import { fireSuccessConfetti } from './utils/confetti'
 import { useBoundaryCheck } from './hooks/useBoundaryCheck'
 import { useGameState } from './hooks/useGameState'
 import { useSoundEffects } from './hooks/useSoundEffects'
+import { useReducedMotion } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgeMode, BoundaryCheckResult } from './types/game.types'
 import { wordList } from './data/wordList'
 import type { MonsterLayoutSnapshot } from './utils/monsterLayout'
+import { publicAsset } from './utils/publicAsset'
 
 function App() {
   const game = useGameState()
@@ -19,6 +24,8 @@ function App() {
   const { checkBoundary } = useBoundaryCheck()
   const { play: playSound } = useSoundEffects()
   const prevStatusRef = useRef(state.status)
+  const reduceMotion = useReducedMotion() ?? false
+  const [feedback, setFeedback] = useState<{ kind: FeedbackKind; key: number } | null>(null)
 
   const [ageMode, setAgeMode] = useState<AgeMode>('standard')
   const [wordsDone, setWordsDone] = useState(0)
@@ -34,10 +41,10 @@ function App() {
   // fallback when canvas layout not yet emitted
   const wordLayout = useMemo(() => {
     const len = Math.max(1, state.currentWord.full.length)
-    const approxCharW = WORD_FONT_SIZE * 0.62
-    const canvasWordWidth = Math.max(360, Math.min(680, len * approxCharW))
+    const canvasWordWidth = estimateWordTextWidth(len)
     const wordStartX = (CANVAS_WIDTH - canvasWordWidth) / 2
-    const boundaryPixelX = (state.currentWord.boundaryIndex / len) * canvasWordWidth + wordStartX
+    const boundaryPixelX =
+      wordStartX + (state.currentWord.boundaryIndex / len) * canvasWordWidth
     const boundaryX01 = boundaryPixelX / CANVAS_WIDTH
     return { len, canvasWordWidth, wordStartX, boundaryPixelX, boundaryX01 }
   }, [state.currentWord])
@@ -78,17 +85,36 @@ function App() {
     if (state.status === 'fail' || state.status === 'hint') setStreak(0)
   }, [state.status])
 
-  // sound effects on status change
+  // sound + visual feedback on status change
   useEffect(() => {
     const prev = prevStatusRef.current
     prevStatusRef.current = state.status
     if (prev === state.status) return
-    if (state.status === 'success') playSound('success')
+
+    if (state.status === 'success') {
+      const nextStreak = streak + 1
+      playSound(nextStreak >= 3 ? 'combo' : 'success')
+      fireSuccessConfetti(reduceMotion)
+      const kind: FeedbackKind =
+        nextStreak >= 4 ? 'super' : nextStreak >= 2 ? 'great' : 'slice'
+      setFeedback({ kind, key: Date.now() })
+    }
+
     if (state.status === 'fail') {
       playSound('deflect')
       if (state.failCount > 0) playSound('grow')
+      setFeedback({
+        kind: state.failCount >= 2 ? 'boom' : 'oops',
+        key: Date.now(),
+      })
     }
-  }, [state.status, state.failCount, playSound])
+  }, [state.status, state.failCount, streak, playSound, reduceMotion])
+
+  useEffect(() => {
+    if (!feedback) return
+    const t = window.setTimeout(() => setFeedback(null), 900)
+    return () => window.clearTimeout(t)
+  }, [feedback])
 
   // keyboard support: SPACE / H / R
   useEffect(() => {
@@ -105,7 +131,9 @@ function App() {
           boundaryPixelX: wordLayout.boundaryPixelX,
           wordStartX: wordLayout.wordStartX,
           canvasWordWidth: wordLayout.canvasWordWidth,
+          approachProgress: 1,
         }
+        if (!isWordSlashable(layout.approachProgress ?? 0)) return
         const demoOk: BoundaryCheckResult = {
           isCorrect: true,
           tolerance: 0,
@@ -183,42 +211,17 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-900 text-white">
-      {/* fixed top scoreboard */}
-      <div className="fixed left-0 right-0 top-0 z-50 border-b border-slate-800/70 bg-slate-950/70 backdrop-blur">
-        <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="text-xs font-semibold tracking-widest text-slate-400">POLY M.A.P.S.</div>
-            <div className="hidden text-xs text-slate-500 sm:block">Laser Hunter POC</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <ScoreBoard score={state.score} streak={streak} misses={state.failCount} />
-            <div className="text-xs text-slate-300">
-              <span className="text-slate-500">LEVEL</span>{' '}
-              <span className="font-semibold">{Math.min(3, state.failCount || 1)}</span>
-            </div>
-            <div className="text-xs text-slate-300">
-              <span className="text-slate-500">🔥</span> x{Math.max(1, streak)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto flex min-h-screen max-w-[1100px] flex-col px-4 pb-6 pt-16">
-        <div className="flex flex-col items-center justify-center py-6">
-          <div className="text-center text-4xl font-black tracking-[0.14em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-yellow-300 to-fuchsia-400 drop-shadow-[0_0_18px_rgba(250,204,21,0.35)]">
-            ⚡ LASER HUNTER
-          </div>
-          <div className="mt-2 text-center text-sm text-slate-300">
-            Morpheme Laser Cutter · Slash the compound word boundary!
-          </div>
-        </div>
-
-        <main className="relative flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow">
+    <div
+      className="relative h-full w-full bg-cover bg-center bg-no-repeat text-white"
+      style={{ backgroundImage: `url(${publicAsset('images/bg_img.png')})` }}
+    >
+      <main className="absolute inset-0 overflow-hidden">
+          <FeedbackPopup kind={feedback?.kind ?? null} triggerKey={feedback?.key ?? 0} />
           <GameCanvas
             word={state.currentWord}
             gameStatus={gameOver ? 'idle' : state.status}
             failCount={state.failCount}
+            streak={streak}
             ageMode={ageMode}
             loading={imagesLoading && !imagesReady}
             devOverlay={devOverlay}
@@ -229,14 +232,9 @@ function App() {
             onSlashAttempt={(touchX, layout) => {
               if (gameOver) return
               if (state.status !== 'playing') return
+              if (!isWordSlashable(layout.approachProgress)) return
               playSound('slice')
-              const result = checkBoundary(
-                touchX,
-                state.currentWord,
-                layout.wordStartX,
-                layout.canvasWordWidth,
-                ageMode,
-              )
+              const result = checkBoundary(touchX, layout.boundaryPixelX, ageMode)
               game.attemptCut(touchX, result)
             }}
           />
@@ -271,54 +269,61 @@ function App() {
               handleStartGame()
             }}
           />
-        </main>
+      </main>
 
-        <div className="mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
-          <div className="text-center text-xs text-slate-400">
-            Progress: <span className="font-semibold text-slate-200">{wordsDone}</span>/10 · Keys:
-            <span className="ml-2 font-mono text-slate-300">SPACE</span>(demo hit)
-            <span className="ml-2 font-mono text-slate-300">H</span>(hint)
-            <span className="ml-2 font-mono text-slate-300">R</span>(reset)
-            {import.meta.env.DEV ? (
-              <>
-                <span className="ml-2 font-mono text-slate-300">?</span>(dev overlay)
-              </>
-            ) : null}
-          </div>
-
-          {/* difficulty selector (maps to age tolerance) */}
-          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-200">
-            <SelectorButton active={ageMode === 'young'} onClick={() => setAgeMode('young')} label="Easy" />
-            <SelectorButton active={ageMode === 'standard'} onClick={() => setAgeMode('standard')} label="Normal" />
-            <SelectorButton active={ageMode === 'advanced'} onClick={() => setAgeMode('advanced')} label="Hard" />
-          </div>
+      <header className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[52px] items-center justify-between px-4">
+        <div className="bubble-panel flex items-center gap-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5">
+          <span className="text-2xl">⚡</span>
+          <span className="font-display text-lg font-extrabold text-white drop-shadow-sm">Laser Hunter</span>
         </div>
+        <ScoreBoard score={state.score} streak={streak} misses={state.failCount} />
+      </header>
+
+      <div className="pointer-events-none absolute left-0 right-0 top-[52px] z-50 flex h-[48px] flex-col items-center justify-center">
+        <div className="font-display text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
+          🎯 Slice the middle of the word!
+        </div>
+        {streak >= 2 ? (
+          <div className="animate-wiggle text-sm font-bold text-yellow-300 drop-shadow-md">
+            🔥 {streak} in a row!
+          </div>
+        ) : null}
       </div>
+
+      <footer className="absolute bottom-0 left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
+        <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
+          <span className="font-display text-sm font-extrabold text-white">🗺️ Progress</span>
+          <ProgressStars done={wordsDone} total={10} />
+          <span className="font-display text-sm font-bold text-yellow-200">
+            {wordsDone}/{10}
+          </span>
+        </div>
+      </footer>
     </div>
   )
 }
 
 export default App
 
-function SelectorButton({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean
-  onClick: () => void
-  label: string
-}) {
+function ProgressStars({ done, total }: { done: number; total: number }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'rounded-lg px-3 py-1.5 font-semibold',
-        active ? 'bg-yellow-300 text-slate-900' : 'bg-slate-900 text-slate-200 hover:bg-slate-800',
-      ].join(' ')}
-    >
-      {label}
-    </button>
+    <div className="flex items-center gap-1">
+      {Array.from({ length: total }, (_, i) => {
+        const filled = i < done
+        const justEarned = filled && i === done - 1
+        return (
+          <span
+            key={i}
+            className={[
+              'text-lg',
+              filled ? 'scale-110 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]' : 'opacity-35 grayscale',
+              justEarned ? 'animate-pop-star' : '',
+            ].join(' ')}
+          >
+            ⭐
+          </span>
+        )
+      })}
+    </div>
   )
 }

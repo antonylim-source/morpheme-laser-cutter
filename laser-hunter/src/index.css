@@ -6,8 +6,93 @@ html,
 body,
 #root {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
-  @apply m-0 bg-zinc-950 text-zinc-100 antialiased;
+  @apply m-0 bg-sky-950 text-zinc-100 antialiased;
+  font-family: 'Fredoka', ui-rounded, 'Segoe UI', system-ui, sans-serif;
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Fredoka', ui-rounded, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  .text-stroke-white {
+    -webkit-text-stroke: 2px rgba(255, 255, 255, 0.85);
+    paint-order: stroke fill;
+  }
+
+  .bubble-panel {
+    @apply rounded-2xl border-[3px] border-white/90 shadow-[0_6px_0_rgba(0,0,0,0.15),0_8px_24px_rgba(0,0,0,0.2)];
+  }
+
+  .btn-bounce:active {
+    transform: translateY(3px);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
+  }
+}
+
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-wiggle {
+  animation: wiggle 2.5s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float-y 2.8s ease-in-out infinite;
+}
+
+@keyframes pop-star {
+  0% {
+    transform: scale(0.3) rotate(-20deg);
+    opacity: 0.4;
+  }
+  55% {
+    transform: scale(1.45) rotate(8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.animate-pop-star {
+  animation: pop-star 0.55s cubic-bezier(0.22, 1.2, 0.36, 1) forwards;
+}
+
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-score-pop {
+  animation: score-pop 0.45s ease-out;
 }
