@@ -29,6 +29,8 @@ export type MonsterLayoutSnapshot = {
   boundaryX01: number
   approachProgress: number
   totalScale: number
+  /** fail 누적에 따른 단어·판정 스케일 (1 = 기본) */
+  textFailScale: number
 }
 
 /** @deprecated use estimateWordTextWidth or measureWordText */
@@ -58,6 +60,28 @@ export function getFailScale(failCount: number): number {
   return Math.pow(gameConfig.monsterScaleUpOnFail, failCount)
 }
 
+const TEXT_FAIL_GROW_MS = 520
+
+/** fail 직후 몬스터·단어가 함께 커지는 보간 스케일 */
+export function getAnimatedTextFailScale(
+  failCount: number,
+  growStartMs: number,
+  reduceMotion: boolean,
+): number {
+  const target = getFailScale(failCount)
+  if (failCount <= 0) return 1
+  if (reduceMotion) return target
+  if (growStartMs <= 0) return target
+
+  const age = performance.now() - growStartMs
+  if (age >= TEXT_FAIL_GROW_MS) return target
+
+  const from = getFailScale(failCount - 1)
+  const t = age / TEXT_FAIL_GROW_MS
+  const ease = 1 - Math.pow(1 - t, 3)
+  return from + (target - from) * ease
+}
+
 export function getMonsterSpeedPxPerSec(failCount: number): number {
   return gameConfig.monsterBaseSpeed * (1 + failCount * (gameConfig.monsterSpeedUpOnFail - 1))
 }
@@ -67,17 +91,19 @@ export function computeMonsterLayout(
   approachProgress: number,
   failCount: number,
   textMetrics?: WordTextMetrics,
+  textFailScale: number = getFailScale(failCount),
 ): MonsterLayoutSnapshot {
   const len = Math.max(1, word.full.length)
   const progress = Math.max(0, Math.min(1, approachProgress))
   const canvasWordWidth = textMetrics?.totalWidth ?? estimateWordTextWidth(len)
   const monsterX = MONSTER_CENTER_X
   const totalScale = getApproachScale(progress) * getFailScale(failCount)
-  const wordStartX = monsterX - canvasWordWidth / 2
+  const scaledWordWidth = canvasWordWidth * textFailScale
+  const wordStartX = monsterX - scaledWordWidth / 2
   const boundaryOffset = textMetrics
     ? getBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
     : (word.boundaryIndex / len) * canvasWordWidth
-  const boundaryPixelX = wordStartX + boundaryOffset
+  const boundaryPixelX = wordStartX + boundaryOffset * textFailScale
 
   return {
     monsterX,
@@ -87,5 +113,6 @@ export function computeMonsterLayout(
     boundaryX01: boundaryPixelX / CANVAS_WIDTH,
     approachProgress: progress,
     totalScale,
+    textFailScale,
   }
 }

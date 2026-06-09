@@ -1,5 +1,6 @@
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { AgeMode } from '../../types/game.types'
+import { publicAsset } from '../../utils/publicAsset'
 
 const AGE_LABELS: Record<AgeMode, { emoji: string; label: string }> = {
   young: { emoji: '🐣', label: 'Easy' },
@@ -39,10 +40,11 @@ export function StartScreen({
             exit={{ y: 10, scale: 0.98, opacity: 0 }}
             transition={{ duration: reduce ? 0.2 : 0.45, ease: 'easeOut' }}
           >
-            <div className="animate-float text-6xl">👾</div>
-            <div className="font-display mt-2 text-4xl font-extrabold text-white drop-shadow-[0_3px_0_rgba(0,0,0,0.2)]">
-              Laser Hunter
-            </div>
+            <img
+              src={publicAsset('images/title_log.png')}
+              alt="Morpheme Laser Cutter"
+              className="mx-auto h-28 w-auto object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)]"
+            />
             <div className="mt-2 text-base font-semibold text-sky-100">
               Slice compound word monsters with your laser!
             </div>

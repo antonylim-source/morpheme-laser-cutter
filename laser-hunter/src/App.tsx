@@ -272,10 +272,11 @@ function App() {
       </main>
 
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[52px] items-center justify-between px-4">
-        <div className="bubble-panel flex items-center gap-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 px-3 py-1.5">
-          <span className="text-2xl">⚡</span>
-          <span className="font-display text-lg font-extrabold text-white drop-shadow-sm">Laser Hunter</span>
-        </div>
+        <img
+          src={publicAsset('images/title_log.png')}
+          alt="Morpheme Laser Cutter"
+          className="h-14 w-auto object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
+        />
         <ScoreBoard score={state.score} streak={streak} misses={state.failCount} />
       </header>
 

@@ -14,6 +14,7 @@ import type { AgeMode, CompoundWord, GameState } from '../../types/game.types'
 import {
   APPROACH_EQUIV_DISTANCE_PX,
   computeMonsterLayout,
+  getAnimatedTextFailScale,
   getMonsterSpeedPxPerSec,
   getMonsterVisualCenterY,
   type MonsterLayoutSnapshot,
@@ -21,6 +22,7 @@ import {
 import {
   WORD_FONT_FAMILY,
   applyWordFont,
+  getBoundaryOffsetX,
   measureWordText,
   type WordTextMetrics,
 } from '../../utils/wordTextMetrics'
@@ -348,7 +350,7 @@ export function GameCanvas({
           ? monsterImg.naturalHeight / monsterImg.naturalWidth
           : 0.62
 
-      // 텍스트/판정은 고정 폭. 몬스터 이미지는 approach/fail 스케일만 적용.
+      // 몬스터 이미지는 approach/fail 스케일 적용. 단어는 textFailScale로 동기화.
       const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
       const w = baseW * totalScale
       const h = w * aspect
@@ -412,10 +414,10 @@ export function GameCanvas({
       ctx.textBaseline = 'middle'
 
       const len = Math.max(1, text.length)
-      const x0 = layout.wordStartX
+      const totalW = textMetrics.totalWidth
+      const baseX0 = layout.monsterX - totalW / 2
       const y = wordZone.wordY
       const heated = failCount > 0
-      const totalW = textMetrics.totalWidth
       const textAlpha = getWordRevealAlpha(layout.approachProgress)
       if (textAlpha <= 0) {
         ctx.restore()
@@ -429,15 +431,25 @@ export function GameCanvas({
         popScale = t < 0.55 ? 0.35 + (t / 0.55) * 0.8 : 1.15 - ((t - 0.55) / 0.45) * 0.15
       }
 
+      const textFailScale = layout.textFailScale
+      const combinedScale = popScale * textFailScale
+      const boundaryOffset = getBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
+      const baseBoundaryX = baseX0 + boundaryOffset
+
       ctx.save()
       ctx.translate(layout.monsterX, y)
-      ctx.scale(popScale, popScale)
+      ctx.scale(combinedScale, combinedScale)
       ctx.translate(-layout.monsterX, -y)
 
       const padW = totalW + 56
       const padH = WORD_FONT_SIZE + 40
-      const padX = x0 - 28
+      const padX = baseX0 - 28
       const padY = y - padH / 2
+
+      if (heated) {
+        drawTextFlames(ctx, padX, padY, padW, padH, failCount, performance.now(), textAlpha, 'behind')
+      }
+
       ctx.save()
       ctx.globalAlpha = textAlpha
       roundRect(ctx, padX, padY, padW, padH, 18)
@@ -452,10 +464,14 @@ export function GameCanvas({
       ctx.globalAlpha = textAlpha
       for (let i = 0; i < len; i++) {
         const ch = text[i]!
-        const cx = x0 + (textMetrics.charLeftOffsets[i] ?? 0)
-        drawExtrudedChar(ctx, ch, cx, y, WORD_FONT_SIZE, heated)
+        const cx = baseX0 + (textMetrics.charLeftOffsets[i] ?? 0)
+        drawExtrudedChar(ctx, ch, cx, y, WORD_FONT_SIZE, heated, failCount)
       }
       ctx.restore()
+
+      if (heated) {
+        drawTextFlames(ctx, padX, padY, padW, padH, failCount, performance.now(), textAlpha, 'front')
+      }
 
       ctx.save()
       ctx.globalAlpha = textAlpha
@@ -465,8 +481,8 @@ export function GameCanvas({
         ctx.setLineDash([6, 6])
         ctx.lineWidth = 2
         ctx.beginPath()
-        ctx.moveTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneTop)
-        ctx.lineTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneBottom)
+        ctx.moveTo(baseBoundaryX + 0.5, y - 100)
+        ctx.lineTo(baseBoundaryX + 0.5, y + 100)
         ctx.stroke()
         ctx.setLineDash([])
       }
@@ -476,8 +492,8 @@ export function GameCanvas({
         ctx.strokeStyle = `rgba(250, 204, 21, ${alpha.toFixed(3)})`
         ctx.lineWidth = 4
         ctx.beginPath()
-        ctx.moveTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneTop + 8)
-        ctx.lineTo(layout.boundaryPixelX + 0.5, wordZone.wordZoneBottom - 8)
+        ctx.moveTo(baseBoundaryX + 0.5, y - 92)
+        ctx.lineTo(baseBoundaryX + 0.5, y + 92)
         ctx.stroke()
       }
 
@@ -488,7 +504,7 @@ export function GameCanvas({
         ctx.fillText(
           `${word.morpheme1} | ${word.morpheme2}`,
           layout.monsterX,
-          wordZone.wordZoneBottom + 22,
+          y + 122,
         )
       }
 
@@ -647,7 +663,18 @@ export function GameCanvas({
         textMetricsWordIdRef.current = word.id
       }
       const textMetrics = textMetricsRef.current
-      const layout = computeMonsterLayout(word, approachRef.current, failCount, textMetrics)
+      const textFailScale = getAnimatedTextFailScale(
+        failCount,
+        growPunchStartRef.current,
+        reduceMotion,
+      )
+      const layout = computeMonsterLayout(
+        word,
+        approachRef.current,
+        failCount,
+        textMetrics,
+        textFailScale,
+      )
       layoutSnapshotRef.current = layout
 
       const wordVisible = getWordRevealAlpha(layout.approachProgress) > 0
@@ -755,6 +782,7 @@ function drawExtrudedChar(
   y: number,
   fontSize: number,
   heated: boolean,
+  failCount = 0,
 ) {
   ctx.save()
   applyWordFont(ctx, fontSize)
@@ -764,6 +792,7 @@ function drawExtrudedChar(
   ctx.miterLimit = 2
 
   const depth = 5
+  const heatPulse = heated ? 0.85 + 0.15 * Math.sin(performance.now() / 140 + x * 0.02) : 1
 
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
   ctx.fillText(ch, x + depth + 2, y + depth + 3)
@@ -771,10 +800,11 @@ function drawExtrudedChar(
   for (let d = depth; d >= 1; d--) {
     const t = d / depth
     if (heated) {
-      const r = Math.round(88 + t * 42)
-      const g = Math.round(32 + t * 22)
-      const b = Math.round(8 + t * 6)
-      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+      const boost = 1 + failCount * 0.08
+      const r = Math.round((120 + t * 55) * boost * heatPulse)
+      const g = Math.round((18 + t * 18) * (1 - failCount * 0.06))
+      const b = Math.round(4 + t * 4)
+      ctx.fillStyle = `rgb(${Math.min(255, r)}, ${g}, ${b})`
     } else {
       const shade = Math.round(18 + t * 38)
       ctx.fillStyle = `rgb(${shade}, ${shade + 6}, ${shade + 14})`
@@ -783,18 +813,19 @@ function drawExtrudedChar(
   }
 
   ctx.lineWidth = 10
-  ctx.strokeStyle = heated ? '#431407' : '#000000'
+  ctx.strokeStyle = heated ? '#7f1d1d' : '#000000'
   ctx.strokeText(ch, x, y)
 
   ctx.lineWidth = 2.5
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+  ctx.strokeStyle = heated ? 'rgba(254, 202, 202, 0.95)' : 'rgba(255, 255, 255, 0.9)'
   ctx.strokeText(ch, x, y)
 
   const face = ctx.createLinearGradient(x, y - fontSize * 0.48, x, y + fontSize * 0.32)
   if (heated) {
-    face.addColorStop(0, '#fffbeb')
-    face.addColorStop(0.55, '#fef3c7')
-    face.addColorStop(1, '#fde68a')
+    face.addColorStop(0, '#fff7ed')
+    face.addColorStop(0.4, '#fed7aa')
+    face.addColorStop(0.75, '#fdba74')
+    face.addColorStop(1, '#f97316')
   } else {
     face.addColorStop(0, '#ffffff')
     face.addColorStop(0.6, '#ffffff')
@@ -803,8 +834,87 @@ function drawExtrudedChar(
   ctx.fillStyle = face
   ctx.fillText(ch, x, y)
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.38)'
+  ctx.fillStyle = heated ? 'rgba(255, 237, 213, 0.45)' : 'rgba(255, 255, 255, 0.38)'
   ctx.fillText(ch, x - 1, y - 2.5)
+
+  ctx.restore()
+}
+
+function drawTextFlames(
+  ctx: CanvasRenderingContext2D,
+  padX: number,
+  padY: number,
+  padW: number,
+  padH: number,
+  failCount: number,
+  now: number,
+  alpha: number,
+  layer: 'behind' | 'front',
+) {
+  if (failCount <= 0 || alpha <= 0) return
+
+  const intensity = 0.38 + failCount * 0.24
+  const particleCount = layer === 'behind' ? 10 + failCount * 14 : 4 + failCount * 5
+
+  if (layer === 'behind') {
+    ctx.save()
+    ctx.globalAlpha = alpha * intensity * 0.5
+    const cx = padX + padW / 2
+    const cy = padY + padH / 2
+    const glowR = Math.max(padW, padH) * (0.58 + failCount * 0.14)
+    const pulse = 0.75 + 0.25 * Math.sin(now / 160)
+    const g = ctx.createRadialGradient(cx, cy, glowR * 0.08, cx, cy, glowR * pulse)
+    g.addColorStop(0, `rgba(239, 68, 68, ${0.62 * intensity})`)
+    g.addColorStop(0.4, `rgba(249, 115, 22, ${0.4 * intensity})`)
+    g.addColorStop(0.75, `rgba(251, 191, 36, ${0.12 * intensity})`)
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(padX - glowR * 0.35, padY - glowR * 0.45, padW + glowR * 0.7, padH + glowR * 0.85)
+    ctx.restore()
+  }
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.globalAlpha = alpha * intensity * (layer === 'front' ? 0.75 : 1)
+
+  for (let i = 0; i < particleCount; i++) {
+    const seed = i * 928371 + failCount * 131
+    const bxNorm = ((seed * 1103515245 + 12345) >>> 0) / 4294967296
+    const bx = padX + bxNorm * padW
+    const phase = ((seed * 2654435761) >>> 0) / 4294967296
+    const cycle = (now / (260 + (i % 6) * 35) + phase) % 1
+    const rise = padH * (0.3 + cycle * 0.95)
+    const fy = padY + padH - rise + Math.sin(now / 150 + i * 1.7) * (5 + failCount * 2.5)
+    const fx = bx + Math.sin(now / 210 + phase * 8) * (11 + failCount * 5)
+    const r = (2.4 + failCount * 2) * (1 - cycle * 0.55)
+    if (r <= 0.25) continue
+
+    const t = cycle
+    const r255 = Math.round(220 + t * 35)
+    const g255 = Math.round(40 + t * 200)
+    const b255 = Math.round(20 + t * 20)
+    const particleAlpha = (1 - t * 0.82) * (0.45 + 0.55 * Math.sin(now / 95 + i * 1.3))
+
+    ctx.beginPath()
+    ctx.ellipse(fx, fy, r * 0.85, r * 1.4, 0, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(${r255}, ${g255}, ${b255}, ${Math.max(0, particleAlpha).toFixed(3)})`
+    ctx.fill()
+  }
+
+  if (layer === 'front') {
+    const tongueCount = 3 + failCount * 2
+    for (let i = 0; i < tongueCount; i++) {
+      const tx = padX + ((i + 0.5) / tongueCount) * padW
+      const wobble = Math.sin(now / 85 + i * 2.1) * (7 + failCount * 2)
+      const th = 16 + failCount * 9 + Math.sin(now / 110 + i) * 7
+      ctx.beginPath()
+      ctx.moveTo(tx - 9, padY + padH)
+      ctx.quadraticCurveTo(tx + wobble, padY + padH - th * 0.72, tx, padY + padH - th)
+      ctx.quadraticCurveTo(tx - wobble * 0.45, padY + padH - th * 0.48, tx + 9, padY + padH)
+      ctx.fillStyle = `rgba(251, 146, 60, ${(0.38 + failCount * 0.1).toFixed(3)})`
+      ctx.fill()
+    }
+  }
 
   ctx.restore()
 }

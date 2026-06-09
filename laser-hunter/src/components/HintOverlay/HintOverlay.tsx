@@ -27,15 +27,6 @@ export function HintOverlay({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0.25 : 0.45 }}
           >
-            {level >= 1 ? (
-              <motion.div
-                className="absolute left-[10%] top-[33%] h-[22%] w-[80%] rounded-3xl border-[3px] border-orange-300"
-                animate={reduce ? { opacity: 0.75 } : { opacity: [0.4, 0.95, 0.4] }}
-                transition={{ duration: 0.65, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
-                style={{ boxShadow: '0 0 32px rgba(251, 191, 36, 0.45)' }}
-              />
-            ) : null}
-
             {level >= 2 ? (
               <motion.div
                 className="absolute top-[33%] h-[22%] w-8 -translate-x-1/2"
