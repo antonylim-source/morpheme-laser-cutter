@@ -17,12 +17,12 @@ import {
   getAnimatedTextFailScale,
   getMonsterSpeedPxPerSec,
   getMonsterVisualCenterY,
+  getWordPopScale,
   type MonsterLayoutSnapshot,
 } from '../../utils/monsterLayout'
 import {
   WORD_FONT_FAMILY,
   applyWordFont,
-  getBoundaryOffsetX,
   measureWordText,
   type WordTextMetrics,
 } from '../../utils/wordTextMetrics'
@@ -253,7 +253,9 @@ export function GameCanvas({
       if (!start) return
       const dy = Math.abs(p.y - start.y)
       if (dy > 30 && isWordSlashable(approachRef.current)) {
-        onSlashAttempt(p.x, layoutSnapshotRef.current)
+        const slashX = getSlashXAtWordY(start, p, WORD_Y_POSITION)
+        lastTouchXRef.current = slashX
+        onSlashAttempt(slashX, layoutSnapshotRef.current)
       }
       gestureStartRef.current = null
     }
@@ -424,17 +426,9 @@ export function GameCanvas({
         return
       }
 
-      const popAge = performance.now() - wordPopStartRef.current
-      let popScale = 1
-      if (!reduceMotion && popAge >= 0 && popAge < 450) {
-        const t = popAge / 450
-        popScale = t < 0.55 ? 0.35 + (t / 0.55) * 0.8 : 1.15 - ((t - 0.55) / 0.45) * 0.15
-      }
-
+      const popScale = getWordPopScale(wordPopStartRef.current, reduceMotion)
       const textFailScale = layout.textFailScale
       const combinedScale = popScale * textFailScale
-      const boundaryOffset = getBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
-      const baseBoundaryX = baseX0 + boundaryOffset
 
       ctx.save()
       ctx.translate(layout.monsterX, y)
@@ -473,16 +467,20 @@ export function GameCanvas({
         drawTextFlames(ctx, padX, padY, padW, padH, failCount, performance.now(), textAlpha, 'front')
       }
 
+      ctx.restore()
+
+      // 경계선은 판정(boundaryPixelX)과 동일 좌표 — popScale 변환 밖에서 그림
       ctx.save()
       ctx.globalAlpha = textAlpha
+      const boundaryX = layout.boundaryPixelX
 
       if (gameStatus !== 'success') {
         ctx.strokeStyle = 'rgba(255,255,255,0.2)'
         ctx.setLineDash([6, 6])
         ctx.lineWidth = 2
         ctx.beginPath()
-        ctx.moveTo(baseBoundaryX + 0.5, y - 100)
-        ctx.lineTo(baseBoundaryX + 0.5, y + 100)
+        ctx.moveTo(boundaryX + 0.5, wordZone.wordZoneTop)
+        ctx.lineTo(boundaryX + 0.5, wordZone.wordZoneBottom)
         ctx.stroke()
         ctx.setLineDash([])
       }
@@ -492,8 +490,8 @@ export function GameCanvas({
         ctx.strokeStyle = `rgba(250, 204, 21, ${alpha.toFixed(3)})`
         ctx.lineWidth = 4
         ctx.beginPath()
-        ctx.moveTo(baseBoundaryX + 0.5, y - 92)
-        ctx.lineTo(baseBoundaryX + 0.5, y + 92)
+        ctx.moveTo(boundaryX + 0.5, wordZone.wordZoneTop + 8)
+        ctx.lineTo(boundaryX + 0.5, wordZone.wordZoneBottom - 8)
         ctx.stroke()
       }
 
@@ -504,11 +502,10 @@ export function GameCanvas({
         ctx.fillText(
           `${word.morpheme1} | ${word.morpheme2}`,
           layout.monsterX,
-          y + 122,
+          wordZone.wordZoneBottom + 22,
         )
       }
 
-      ctx.restore()
       ctx.restore()
 
       ctx.restore()
@@ -668,12 +665,14 @@ export function GameCanvas({
         growPunchStartRef.current,
         reduceMotion,
       )
+      const textVisualScale = getWordPopScale(wordPopStartRef.current, reduceMotion) * textFailScale
       const layout = computeMonsterLayout(
         word,
         approachRef.current,
         failCount,
         textMetrics,
         textFailScale,
+        textVisualScale,
       )
       layoutSnapshotRef.current = layout
 
@@ -917,6 +916,20 @@ function drawTextFlames(
   }
 
   ctx.restore()
+}
+
+/** 스와이프 궤적이 단어 높이(wordY)를 지나는 X — 대각선·드리프트 보정 */
+function getSlashXAtWordY(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  wordY: number,
+): number {
+  const dy = end.y - start.y
+  if (Math.abs(dy) < 1e-3) return end.x
+  const t = (wordY - start.y) / dy
+  if (t < 0) return start.x
+  if (t > 1) return end.x
+  return start.x + (end.x - start.x) * t
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

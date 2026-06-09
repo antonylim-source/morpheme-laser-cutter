@@ -51,3 +51,15 @@ export function getBoundaryOffsetX(
   if (idx >= metrics.charLeftOffsets.length) return metrics.totalWidth
   return metrics.charLeftOffsets[idx]!
 }
+
+/** 형태소 경계 — 인접 글자 사이 간격 중앙 (시각적 점선 위치) */
+export function getVisualBoundaryOffsetX(
+  metrics: WordTextMetrics,
+  boundaryIndex: number,
+  wordLength: number,
+  letterSpacing: number = WORD_LETTER_SPACING,
+): number {
+  const raw = getBoundaryOffsetX(metrics, boundaryIndex, wordLength)
+  if (boundaryIndex <= 0) return raw
+  return Math.max(0, raw - letterSpacing / 2)
+}

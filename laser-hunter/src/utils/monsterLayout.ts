@@ -1,13 +1,14 @@
 import {
   CANVAS_WIDTH,
   MONSTER_APPROACH_MIN_SCALE,
+  WORD_LETTER_SPACING,
   WORD_Y_POSITION,
   gameConfig,
 } from '../constants/gameConfig'
 import type { CompoundWord } from '../types/game.types'
 import {
   estimateWordTextWidth,
-  getBoundaryOffsetX,
+  getVisualBoundaryOffsetX,
   type WordTextMetrics,
 } from './wordTextMetrics'
 
@@ -61,6 +62,16 @@ export function getFailScale(failCount: number): number {
 }
 
 const TEXT_FAIL_GROW_MS = 520
+const WORD_POP_MS = 450
+
+/** 단어 등장 pop 애니메이션 스케일 (1 = 최종 크기) */
+export function getWordPopScale(popStartMs: number, reduceMotion: boolean): number {
+  if (reduceMotion || popStartMs <= 0) return 1
+  const popAge = performance.now() - popStartMs
+  if (popAge < 0 || popAge >= WORD_POP_MS) return 1
+  const t = popAge / WORD_POP_MS
+  return t < 0.55 ? 0.35 + (t / 0.55) * 0.8 : 1.15 - ((t - 0.55) / 0.45) * 0.15
+}
 
 /** fail 직후 몬스터·단어가 함께 커지는 보간 스케일 */
 export function getAnimatedTextFailScale(
@@ -92,18 +103,20 @@ export function computeMonsterLayout(
   failCount: number,
   textMetrics?: WordTextMetrics,
   textFailScale: number = getFailScale(failCount),
+  textVisualScale: number = textFailScale,
 ): MonsterLayoutSnapshot {
   const len = Math.max(1, word.full.length)
   const progress = Math.max(0, Math.min(1, approachProgress))
   const canvasWordWidth = textMetrics?.totalWidth ?? estimateWordTextWidth(len)
   const monsterX = MONSTER_CENTER_X
   const totalScale = getApproachScale(progress) * getFailScale(failCount)
-  const scaledWordWidth = canvasWordWidth * textFailScale
+  const scaledWordWidth = canvasWordWidth * textVisualScale
   const wordStartX = monsterX - scaledWordWidth / 2
+  const gapAdjust = word.boundaryIndex > 0 ? WORD_LETTER_SPACING / 2 : 0
   const boundaryOffset = textMetrics
-    ? getBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
-    : (word.boundaryIndex / len) * canvasWordWidth
-  const boundaryPixelX = wordStartX + boundaryOffset * textFailScale
+    ? getVisualBoundaryOffsetX(textMetrics, word.boundaryIndex, len)
+    : (word.boundaryIndex / len) * canvasWordWidth - gapAdjust
+  const boundaryPixelX = wordStartX + boundaryOffset * textVisualScale
 
   return {
     monsterX,
