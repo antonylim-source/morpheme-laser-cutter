@@ -1,5 +1,4 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { useMemo } from 'react'
 import type { CompoundWord, GameState, MorphemeEffect } from '../../types/game.types'
 
 type Props = {
@@ -10,21 +9,6 @@ type Props = {
 
 export function SplitAnimation({ word, status, failCount }: Props) {
   const reduce = useReducedMotion() ?? false
-
-  const text = word.full.toUpperCase()
-  const cut = clampInt(word.boundaryIndex, 0, text.length)
-  const leftText = text.slice(0, cut)
-  const rightText = text.slice(cut)
-
-  const sparkles = useMemo(() => {
-    return Array.from({ length: 24 }).map((_, i) => ({
-      id: i,
-      dx: (Math.random() - 0.5) * 180,
-      dy: -40 - Math.random() * 140,
-      s: 0.6 + Math.random() * 0.9,
-      d: 0.45 + Math.random() * 0.25,
-    }))
-  }, [word.id, status])
 
   const isSuccess = status === 'success'
   const isFail = status === 'fail'
@@ -55,94 +39,67 @@ export function SplitAnimation({ word, status, failCount }: Props) {
         {isSuccess ? (
           <motion.div
             key={`success-${word.id}`}
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0.3 : 0.45 }}
           >
-            <div className="relative">
-              {!reduce ? (
-                <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2">
-                  {sparkles.map((p) => (
-                    <motion.span
-                      key={p.id}
-                      className="absolute block h-1.5 w-1.5 rounded-full bg-yellow-300"
-                      initial={{ opacity: 0, x: 0, y: 0, scale: 0.5 }}
-                      animate={{ opacity: [0, 1, 0], x: p.dx, y: p.dy, scale: [0.6, p.s, 0.2] }}
-                      transition={{ duration: p.d, ease: 'easeOut' }}
-                      style={{ boxShadow: '0 0 14px rgba(250, 204, 21, 0.9)' }}
-                    />
-                  ))}
+            <motion.div
+              className="pointer-events-none absolute left-1/2 top-[14%] -translate-x-1/2 text-3xl font-extrabold text-yellow-300/90"
+              initial={{ opacity: 0, y: 10, scale: 0.8 }}
+              animate={{ opacity: 1, y: reduce ? -4 : -14, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ delay: reduce ? 0.2 : 0.12, duration: reduce ? 0.35 : 0.5, ease: 'easeOut' }}
+              style={{ textShadow: '0 0 18px rgba(250, 204, 21, 0.55)' }}
+            >
+              +100
+            </motion.div>
+
+            <motion.div
+              className="absolute inset-x-0 bottom-[4.5rem] flex justify-center px-3 pb-2"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: reduce ? 0.55 : 0.95, duration: reduce ? 0.3 : 0.5 }}
+            >
+              <div className="bubble-panel w-full max-w-lg bg-slate-950/90 px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
+                <motion.div
+                  className="font-display mb-3 text-center text-sm font-extrabold leading-snug text-white sm:text-base"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: reduce ? 0.6 : 1.02 }}
+                >
+                  <span className="text-cyan-300">Slice!</span>
+                  <span className="mx-1.5 text-white/50">→</span>
+                  <span className="rounded-lg bg-white/15 px-2 py-0.5 tracking-wide text-amber-200">
+                    {word.full}
+                  </span>
+                </motion.div>
+
+                <div className="flex items-end justify-center gap-3 sm:gap-5">
+                  <MorphemeImage
+                    src={word.image1}
+                    label={word.morpheme1}
+                    effect={word.effect1 ?? 'none'}
+                    reduce={reduce}
+                    delay={reduce ? 0.65 : 1.08}
+                  />
+                  <span
+                    aria-hidden
+                    className="font-display mb-11 text-2xl font-extrabold text-amber-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] sm:mb-12 sm:text-3xl"
+                  >
+                    +
+                  </span>
+                  <MorphemeImage
+                    src={word.image2}
+                    label={word.morpheme2}
+                    effect={word.effect2 ?? 'none'}
+                    reduce={reduce}
+                    delay={reduce ? 0.72 : 1.16}
+                  />
                 </div>
-              ) : null}
-
-              <motion.div
-                className="mb-2 text-center text-sm font-bold tracking-widest text-cyan-300"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 }}
-              >
-                Slice! {word.morpheme1}! {word.morpheme2}! → {word.full}
-              </motion.div>
-
-              <div className="flex items-center justify-center gap-4">
-                <motion.div
-                  className="rounded-2xl border-2 border-emerald-400/50 bg-slate-950/80 px-5 py-3 text-3xl font-black tracking-wider text-emerald-100 shadow-[0_0_30px_rgba(52,211,153,0.25)] backdrop-blur"
-                  initial={{ x: 0, rotate: 0 }}
-                  animate={{ x: reduce ? -28 : -90, rotate: reduce ? 0 : -4 }}
-                  transition={{ duration: reduce ? 0.35 : 0.6, ease: 'easeOut' }}
-                >
-                  {leftText || '\u00A0'}
-                </motion.div>
-
-                <motion.div
-                  className="text-2xl font-bold text-yellow-300"
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.2, duration: 0.3 }}
-                >
-                  |
-                </motion.div>
-
-                <motion.div
-                  className="rounded-2xl border-2 border-emerald-400/50 bg-slate-950/80 px-5 py-3 text-3xl font-black tracking-wider text-emerald-100 shadow-[0_0_30px_rgba(52,211,153,0.25)] backdrop-blur"
-                  initial={{ x: 0, rotate: 0 }}
-                  animate={{ x: reduce ? 28 : 90, rotate: reduce ? 0 : 4 }}
-                  transition={{ duration: reduce ? 0.35 : 0.6, ease: 'easeOut' }}
-                >
-                  {rightText || '\u00A0'}
-                </motion.div>
               </div>
-
-              <div className="mt-5 flex items-center justify-center gap-8">
-                <MorphemeImage
-                  src={word.image1}
-                  label={word.morpheme1}
-                  effect={word.effect1 ?? 'none'}
-                  reduce={reduce}
-                  delay={0.12}
-                />
-                <MorphemeImage
-                  src={word.image2}
-                  label={word.morpheme2}
-                  effect={word.effect2 ?? 'none'}
-                  reduce={reduce}
-                  delay={0.2}
-                />
-              </div>
-
-              <motion.div
-                className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -translate-y-12 text-4xl font-extrabold text-yellow-300"
-                initial={{ opacity: 0, y: 10, scale: 0.8 }}
-                animate={{ opacity: 1, y: reduce ? -10 : -32, scale: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0.35 : 0.65, ease: 'easeOut' }}
-                style={{ textShadow: '0 0 22px rgba(250, 204, 21, 0.7)' }}
-              >
-                +100
-              </motion.div>
-            </div>
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -187,32 +144,33 @@ function MorphemeImage({
 
   return (
     <motion.div
-      className="flex flex-col items-center gap-2"
-      initial={{ opacity: 0, scale: 0.85, y: 12 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
+      className="flex w-[7.25rem] flex-col items-center gap-2 sm:w-[8rem]"
+      initial={{ opacity: 0, scale: 0.88, y: 14 }}
+      animate={{ opacity: 1, scale: reduce ? 1 : [0.88, 1.06, 1], y: 0 }}
       transition={{ duration: reduce ? 0.25 : 0.55, delay, ease: 'easeOut' }}
     >
       <motion.div
-        className="relative h-24 w-24 overflow-hidden rounded-2xl border-2 border-yellow-400/40 bg-slate-900/80 shadow-lg"
+        className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl border-[3px] border-white bg-gradient-to-b from-white to-amber-50 shadow-[inset_0_2px_10px_rgba(0,0,0,0.06),0_4px_12px_rgba(0,0,0,0.25)] sm:h-32 sm:w-32"
         animate={effectAnim}
         transition={effectTransition}
-        style={{ boxShadow: '0 0 28px rgba(250, 204, 21, 0.2)' }}
       >
-        <img src={src} alt={label} className="h-full w-full object-contain p-2" />
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          className="h-[80%] w-[80%] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.18)]"
+        />
         {effect === 'shake' ? (
           <motion.div
-            className="pointer-events-none absolute inset-0 rounded-2xl border border-rose-400/30"
+            className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-rose-400/40"
             animate={reduce ? {} : { opacity: [0.2, 0.7, 0.2] }}
             transition={{ duration: 0.4, repeat: Infinity }}
           />
         ) : null}
       </motion.div>
-      <div className="text-sm font-bold tracking-wide text-yellow-100">{label}</div>
+      <div className="font-display w-full rounded-xl border-2 border-white/90 bg-slate-800 px-2 py-1.5 text-center text-sm font-extrabold leading-tight tracking-wide text-white shadow-[0_3px_0_rgba(0,0,0,0.2)] sm:text-base">
+        {label}
+      </div>
     </motion.div>
   )
-}
-
-function clampInt(n: number, min: number, max: number) {
-  if (Number.isNaN(n)) return min
-  return Math.max(min, Math.min(max, n))
 }

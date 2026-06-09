@@ -7,7 +7,6 @@ import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
 import { CANVAS_WIDTH, isWordSlashable } from './constants/gameConfig'
 import { estimateWordTextWidth } from './utils/wordTextMetrics'
-import { fireSuccessConfetti } from './utils/confetti'
 import { useBoundaryCheck } from './hooks/useBoundaryCheck'
 import { useGameState } from './hooks/useGameState'
 import { useSoundEffects } from './hooks/useSoundEffects'
@@ -30,7 +29,7 @@ function App() {
   const [ageMode, setAgeMode] = useState<AgeMode>('standard')
   const [wordsDone, setWordsDone] = useState(0)
   const [gameOver, setGameOver] = useState(false)
-  const [streak, setStreak] = useState(0)
+  const [combo, setCombo] = useState(0)
   const [devOverlay, setDevOverlay] = useState(false)
   const [imagesLoading, setImagesLoading] = useState(false)
   const [imagesReady, setImagesReady] = useState(false)
@@ -65,7 +64,7 @@ function App() {
           game.nextWord()
           return next
         })
-      }, state.status === 'success' ? 1800 : 1500)
+      }, state.status === 'success' ? 3000 : 1500)
     }
 
     if (state.status === 'fail') {
@@ -79,10 +78,10 @@ function App() {
     }
   }, [state.status, game, gameOver])
 
-  // streak tracking
+  // combo tracking
   useEffect(() => {
-    if (state.status === 'success') setStreak((s) => s + 1)
-    if (state.status === 'fail' || state.status === 'hint') setStreak(0)
+    if (state.status === 'success') setCombo((s) => s + 1)
+    if (state.status === 'fail' || state.status === 'hint') setCombo(0)
   }, [state.status])
 
   // sound + visual feedback on status change
@@ -92,23 +91,30 @@ function App() {
     if (prev === state.status) return
 
     if (state.status === 'success') {
-      const nextStreak = streak + 1
-      playSound(nextStreak >= 3 ? 'combo' : 'success')
-      fireSuccessConfetti(reduceMotion)
+      const nextCombo = combo + 1
+      playSound('crack')
+      playSound(nextCombo >= 3 ? 'combo' : 'success')
+      if (!reduceMotion && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(nextCombo >= 3 ? [12, 35, 22] : [10, 28, 16])
+      }
       const kind: FeedbackKind =
-        nextStreak >= 4 ? 'super' : nextStreak >= 2 ? 'great' : 'slice'
+        nextCombo >= 4 ? 'super' : nextCombo >= 2 ? 'great' : 'slice'
       setFeedback({ kind, key: Date.now() })
     }
 
     if (state.status === 'fail') {
       playSound('deflect')
+      playSound('crack')
       if (state.failCount > 0) playSound('grow')
+      if (!reduceMotion && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(state.failCount >= 2 ? [18, 40, 28] : [14, 32, 20])
+      }
       setFeedback({
         kind: state.failCount >= 2 ? 'boom' : 'oops',
         key: Date.now(),
       })
     }
-  }, [state.status, state.failCount, streak, playSound, reduceMotion])
+  }, [state.status, state.failCount, combo, playSound, reduceMotion])
 
   useEffect(() => {
     if (!feedback) return
@@ -164,7 +170,7 @@ function App() {
         if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
         setWordsDone(0)
         setGameOver(false)
-        setStreak(0)
+        setCombo(0)
         setDevOverlay(false)
         game.resetGame()
       }
@@ -221,7 +227,7 @@ function App() {
             word={state.currentWord}
             gameStatus={gameOver ? 'idle' : state.status}
             failCount={state.failCount}
-            streak={streak}
+            combo={combo}
             ageMode={ageMode}
             loading={imagesLoading && !imagesReady}
             devOverlay={devOverlay}
@@ -247,7 +253,7 @@ function App() {
               if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
               setWordsDone(0)
               setGameOver(false)
-              setStreak(0)
+              setCombo(0)
               game.resetGame()
             }}
           />
@@ -275,23 +281,25 @@ function App() {
         <img
           src={publicAsset('images/title_log.png')}
           alt="Morpheme Laser Cutter"
-          className="h-14 w-auto object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
+          className="h-14 w-auto translate-y-[15px] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
         />
-        <ScoreBoard score={state.score} streak={streak} misses={state.failCount} />
+        <div className="translate-y-[23px]">
+          <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
+        </div>
       </header>
 
       <div className="pointer-events-none absolute left-0 right-0 top-[52px] z-50 flex h-[48px] flex-col items-center justify-center">
         <div className="font-display text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
           🎯 Slice the middle of the word!
         </div>
-        {streak >= 2 ? (
+        {combo >= 2 ? (
           <div className="animate-wiggle text-sm font-bold text-yellow-300 drop-shadow-md">
-            🔥 {streak} in a row!
+            🔥 {combo} Combo!
           </div>
         ) : null}
       </div>
 
-      <footer className="absolute bottom-0 left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
+      <footer className="absolute bottom-[10px] left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
         <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
           <span className="font-display text-sm font-extrabold text-white">🗺️ Progress</span>
           <ProgressStars done={wordsDone} total={10} />

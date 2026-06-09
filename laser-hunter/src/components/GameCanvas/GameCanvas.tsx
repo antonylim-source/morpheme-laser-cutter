@@ -31,7 +31,7 @@ type Props = {
   word: CompoundWord
   gameStatus: GameState['status']
   failCount: number
-  streak?: number
+  combo?: number
   ageMode?: AgeMode
   loading?: boolean
   devOverlay?: boolean
@@ -45,19 +45,123 @@ const MAX_CANVAS_DPR = 2
 const MAX_TRAIL_POINTS = 48
 const TRAIL_LIFE_MS = 1200
 const TRAIL_MIN_DIST_SQ = 6 * 6
+const SUCCESS_SPLIT_MS = 850
+const SUCCESS_SPLIT_OFFSET_PX = 130
+const SUCCESS_SPLIT_ROTATE_DEG = 5
+const DEBRIS_GRAVITY = 980
+const DEBRIS_GRAVITY_BURST_MS = 100
+const DEBRIS_GRAVITY_BURST_MUL = 0.35
+const DEBRIS_VY_DRAG_FREE_MS = 150
+const DEBRIS_DRAG_X = 0.993
+const DEBRIS_DRAG_Y = 0.992
+const DEBRIS_BOUNCE = 0.5
+const DEBRIS_FADE_AFTER = 0.78
+const DEBRIS_WAVE_DELAYS_MS = [0, 120, 250, 420, 580]
+const DEBRIS_WAVE_KINDS: DebrisKind[] = ['chunk', 'medium', 'medium', 'dust', 'dust']
+const DEBRIS_WAVE_COUNTS = { normal: [26, 24, 22, 17, 22], reduce: [11, 11, 11, 10, 12] }
+const HIT_STOP_MS = 60
+const FAIL_HIT_STOP_MS = 50
+const SUCCESS_SHOCKWAVE_MS = 380
+const DEFLECT_BEAM_MS = 480
+const DEFLECT_SPARK_MS = 280
+const FAIL_FLASH_MS = 220
+const MISS_DEBRIS_COUNT = { normal: 10, reduce: 5 } as const
+
+const STONE_PALETTE = [
+  { fill: '#a8a29e', stroke: '#57534e', highlight: '#d6d3d1' },
+  { fill: '#d6d3d1', stroke: '#78716c', highlight: '#f5f5f4' },
+  { fill: '#9ca3af', stroke: '#4b5563', highlight: '#cbd5e1' },
+  { fill: '#c4b5a5', stroke: '#6b5c4c', highlight: '#e7ddd0' },
+  { fill: '#e7e5e4', stroke: '#a8a29e', highlight: '#fafaf9' },
+  { fill: '#b8a898', stroke: '#5c4f42', highlight: '#ddd0c0' },
+] as const
+
+type DebrisKind = 'chunk' | 'medium' | 'dust'
+
+type DebrisFragment = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  rot: number
+  rotSpeed: number
+  size: number
+  verts: [number, number][]
+  fill: string
+  stroke: string
+  highlight: string
+  bornAt: number
+  lifeMs: number
+  kind: DebrisKind
+  floorY: number
+  bouncesLeft: number
+}
+
+type DustPuff = {
+  x: number
+  y: number
+  bornAt: number
+  lifeMs: number
+  maxRadius: number
+  driftX: number
+  driftY: number
+}
+
+type DebrisWaveState = {
+  cutX: number
+  yTop: number
+  yBottom: number
+  floorY: number
+  yCenter: number
+  reduceMotion: boolean
+  startMs: number
+  wavesSpawned: number
+  countMul: number
+}
+
+type SuccessJuiceSnapshot = {
+  cutX: number
+  yCenter: number
+  startMs: number
+}
+
+type FailJuiceSnapshot = {
+  x: number
+  y: number
+  startMs: number
+}
+
+type DeflectSegment = {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+type MonsterBodyRect = {
+  x: number
+  y: number
+  w: number
+  h: number
+  xCenter: number
+  yCenter: number
+  depthAlpha: number
+  totalScale: number
+}
 
 type DeflectState = {
   x: number
   y: number
   angle: number
   startMs: number
+  segments: DeflectSegment[]
 }
 
 export function GameCanvas({
   word,
   gameStatus,
   failCount,
-  streak = 0,
+  combo = 0,
   ageMode = 'standard',
   loading = false,
   devOverlay = false,
@@ -68,6 +172,7 @@ export function GameCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const [shakeKey, setShakeKey] = useState(0)
+  const [shakeKind, setShakeKind] = useState<'fail' | 'success' | null>(null)
   const reduceMotion = useReducedMotion() ?? false
 
   const approachRef = useRef(0)
@@ -81,7 +186,6 @@ export function GameCanvas({
   const gestureCurrentRef = useRef<{ x: number; y: number } | null>(null)
   const trailRef = useRef<TrailPoint[]>([])
   const deflectRef = useRef<DeflectState | null>(null)
-  const shieldFlashRef = useRef(0)
   const monsterImgRef = useRef<HTMLImageElement | null>(null)
   const prevStatusRef = useRef<GameState['status']>(gameStatus)
   const lastLayoutEmitRef = useRef(0)
@@ -91,6 +195,16 @@ export function GameCanvas({
   const growPunchStartRef = useRef(0)
   const wordPopStartRef = useRef(0)
   const successFlashStartRef = useRef(0)
+  const successSplitStartRef = useRef(0)
+  const frozenSuccessLayoutRef = useRef<MonsterLayoutSnapshot | null>(null)
+  const splitDebrisRef = useRef<DebrisFragment[]>([])
+  const dustPuffsRef = useRef<DustPuff[]>([])
+  const debrisWaveStateRef = useRef<DebrisWaveState | null>(null)
+  const hitStopUntilRef = useRef(0)
+  const failFrozenAtRef = useRef(0)
+  const successJuiceRef = useRef<SuccessJuiceSnapshot | null>(null)
+  const failJuiceRef = useRef<FailJuiceSnapshot | null>(null)
+  const missDebrisRef = useRef<DebrisFragment[]>([])
   const prevWordVisibleRef = useRef(false)
   const prevFailCountRef = useRef(failCount)
 
@@ -123,13 +237,21 @@ export function GameCanvas({
   useEffect(() => {
     approachRef.current = 0
     deflectRef.current = null
-    shieldFlashRef.current = 0
     trailRef.current = []
     textMetricsRef.current = null
     textMetricsWordIdRef.current = ''
     growPunchStartRef.current = 0
     wordPopStartRef.current = 0
     prevWordVisibleRef.current = false
+    frozenSuccessLayoutRef.current = null
+    splitDebrisRef.current = []
+    dustPuffsRef.current = []
+    debrisWaveStateRef.current = null
+    hitStopUntilRef.current = 0
+    failFrozenAtRef.current = 0
+    successJuiceRef.current = null
+    failJuiceRef.current = null
+    missDebrisRef.current = []
     layoutSnapshotRef.current = computeMonsterLayout(word, 0, failCount)
   }, [word.id])
 
@@ -181,23 +303,93 @@ export function GameCanvas({
     prevStatusRef.current = gameStatus
     if (prev === gameStatus) return
     if (gameStatus === 'success') {
-      successFlashStartRef.current = performance.now()
+      const now = performance.now()
+      successFlashStartRef.current = now
+      successSplitStartRef.current = now
+      const frozen = { ...layoutSnapshotRef.current }
+      frozenSuccessLayoutRef.current = frozen
+      const body = computeMonsterBodyRectStatic(
+        frozen,
+        monsterImgRef.current,
+        wordZone.wordY,
+      )
+      const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
+      const countMul = 1 + Math.min(combo + 1, 4) * 0.05
+      hitStopUntilRef.current = reduceMotion ? now : now + HIT_STOP_MS
+      successJuiceRef.current = {
+        cutX: frozen.boundaryPixelX,
+        yCenter: body.yCenter,
+        startMs: now,
+      }
+      debrisWaveStateRef.current = {
+        cutX: frozen.boundaryPixelX,
+        yTop: body.y - 12,
+        yBottom: body.y + body.h + 12,
+        floorY,
+        yCenter: body.yCenter,
+        reduceMotion,
+        startMs: now,
+        wavesSpawned: 0,
+        countMul,
+      }
+      splitDebrisRef.current = []
+      dustPuffsRef.current = []
+      if (!reduceMotion) {
+        setShakeKind('success')
+        setShakeKey((k) => k + 1)
+      }
       return
+    }
+    if (prev === 'success') {
+      frozenSuccessLayoutRef.current = null
+      splitDebrisRef.current = []
+      dustPuffsRef.current = []
+      debrisWaveStateRef.current = null
+      hitStopUntilRef.current = 0
+      failFrozenAtRef.current = 0
+      successJuiceRef.current = null
+      failJuiceRef.current = null
     }
     if (gameStatus !== 'fail') return
 
+    const now = performance.now()
     const layout = layoutSnapshotRef.current
     const touchX = lastTouchXRef.current ?? layout.boundaryPixelX
+    const reflectAngle = computeDeflectReflectAngle(
+      trailRef.current,
+      touchX,
+      layout.boundaryPixelX,
+    )
+    const body = computeMonsterBodyRectStatic(
+      layout,
+      monsterImgRef.current,
+      wordZone.wordY,
+    )
+    const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
+
+    failFrozenAtRef.current = now
+    hitStopUntilRef.current = reduceMotion ? now : now + FAIL_HIT_STOP_MS
+    failJuiceRef.current = { x: touchX, y: wordZone.wordY, startMs: now }
+    missDebrisRef.current = spawnMissDebris(
+      touchX,
+      wordZone.wordY,
+      floorY,
+      now,
+      reduceMotion,
+    )
     deflectRef.current = {
       x: touchX,
       y: wordZone.wordY,
-      angle: (Math.random() > 0.5 ? 1 : -1) * (0.6 + Math.random() * 0.5),
-      startMs: performance.now(),
+      angle: reflectAngle,
+      startMs: now,
+      segments: buildDeflectSegments(touchX, wordZone.wordY, reflectAngle),
     }
-    shieldFlashRef.current = performance.now()
     approachRef.current = Math.max(0, approachRef.current - 0.07 - failCount * 0.025)
-    if (!reduceMotion) setShakeKey((k) => k + 1)
-  }, [gameStatus, failCount, wordZone.wordY, reduceMotion])
+    if (!reduceMotion) {
+      setShakeKind('fail')
+      setShakeKey((k) => k + 1)
+    }
+  }, [gameStatus, failCount, wordZone.wordY, reduceMotion, combo])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -337,7 +529,11 @@ export function GameCanvas({
       ctx.restore()
     }
 
-    const drawMonsterBody = (layout: MonsterLayoutSnapshot, xCenter = layout.monsterX) => {
+    const getMonsterBodyRect = (
+      layout: MonsterLayoutSnapshot,
+      xCenter = layout.monsterX,
+      bobPhase = layout.approachProgress,
+    ): MonsterBodyRect => {
       const growAge = performance.now() - growPunchStartRef.current
       let growMul = 1
       if (!reduceMotion && growAge >= 0 && growAge < 420) {
@@ -352,41 +548,36 @@ export function GameCanvas({
           ? monsterImg.naturalHeight / monsterImg.naturalWidth
           : 0.62
 
-      // 몬스터 이미지는 approach/fail 스케일 적용. 단어는 textFailScale로 동기화.
       const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
       const w = baseW * totalScale
       const h = w * aspect
-      const bob =
-        reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * layout.approachProgress
+      const bob = reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * bobPhase
       const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob
       const x = xCenter - w / 2
       const y = yCenter - h / 2
       const depthAlpha = 0.5 + 0.5 * layout.approachProgress
+
+      return { x, y, w, h, xCenter, yCenter, depthAlpha, totalScale }
+    }
+
+    const drawMonsterBody = (layout: MonsterLayoutSnapshot, xCenter = layout.monsterX) => {
+      const { x, y, w, h, xCenter: cx, yCenter, depthAlpha, totalScale } = getMonsterBodyRect(
+        layout,
+        xCenter,
+      )
+      const monsterImg = monsterImgRef.current
 
       ctx.save()
 
       if (failCount > 0) {
         const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 180)
         ctx.save()
-        const fg = ctx.createRadialGradient(xCenter, yCenter, h * 0.22, xCenter, yCenter, w * 0.62)
+        const fg = ctx.createRadialGradient(cx, yCenter, h * 0.22, cx, yCenter, w * 0.62)
         fg.addColorStop(0, `rgba(251, 146, 60, ${0.22 * pulse})`)
         fg.addColorStop(0.55, `rgba(239, 68, 68, ${0.16 * pulse})`)
         fg.addColorStop(1, 'rgba(0,0,0,0)')
         ctx.fillStyle = fg
         ctx.fillRect(x - 60, y - 60, w + 120, h + 120)
-        ctx.restore()
-      }
-
-      const shieldAge = performance.now() - shieldFlashRef.current
-      if (shieldAge < 450) {
-        const shieldAlpha = 1 - shieldAge / 450
-        ctx.save()
-        roundRect(ctx, x - 8, y - 8, w + 16, h + 16, 26 * totalScale)
-        ctx.strokeStyle = `rgba(148, 163, 184, ${shieldAlpha * 0.95})`
-        ctx.lineWidth = 4 + shieldAlpha * 4
-        ctx.shadowColor = '#e2e8f0'
-        ctx.shadowBlur = 18 * shieldAlpha
-        ctx.stroke()
         ctx.restore()
       }
 
@@ -516,6 +707,141 @@ export function GameCanvas({
       drawWordOnMonster(layout, textMetrics)
     }
 
+    const drawSplitMonster = (
+      layout: MonsterLayoutSnapshot,
+      textMetrics: WordTextMetrics,
+      now: number,
+    ) => {
+      const body = getMonsterBodyRect(layout, layout.monsterX, 1)
+      const { x, y, w, h, yCenter, depthAlpha } = body
+      const cutX = layout.boundaryPixelX
+      const cutLocal = Math.max(0.02, Math.min(0.98, (cutX - x) / w))
+
+      const splitAge = now - successSplitStartRef.current
+      const t = Math.min(1, splitAge / SUCCESS_SPLIT_MS)
+      const ease = 1 - Math.pow(1 - t, 3)
+      const offset = (reduceMotion ? 48 : SUCCESS_SPLIT_OFFSET_PX) * ease
+      const rotRad = (reduceMotion ? 0 : SUCCESS_SPLIT_ROTATE_DEG) * ease * (Math.PI / 180)
+
+      const monsterImg = monsterImgRef.current
+      if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
+        const nw = monsterImg.naturalWidth
+        const nh = monsterImg.naturalHeight
+        const cutSrc = cutLocal * nw
+        const leftSrcW = cutSrc
+        const rightSrcW = nw - cutSrc
+        const leftDestW = cutLocal * w
+        const rightDestW = w - leftDestW
+        const leftX = x - offset
+        const rightX = cutX + offset
+
+        ctx.save()
+        ctx.globalAlpha = depthAlpha
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.translate(cutX, yCenter)
+        ctx.rotate(-rotRad)
+        ctx.translate(-cutX, -yCenter)
+        ctx.drawImage(monsterImg, 0, 0, leftSrcW, nh, leftX, y, leftDestW, h)
+        ctx.restore()
+
+        ctx.save()
+        ctx.globalAlpha = depthAlpha
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.translate(cutX, yCenter)
+        ctx.rotate(rotRad)
+        ctx.translate(-cutX, -yCenter)
+        ctx.drawImage(monsterImg, cutSrc, 0, rightSrcW, nh, rightX, y, rightDestW, h)
+        ctx.restore()
+      } else {
+        ctx.save()
+        roundRect(ctx, x - offset, y, w * cutLocal, h, 22 * layout.totalScale)
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.2)'
+        ctx.fill()
+        roundRect(ctx, cutX + offset, y, w * (1 - cutLocal), h, 22 * layout.totalScale)
+        ctx.fill()
+        ctx.restore()
+      }
+
+      drawSplitWordHalves(layout, textMetrics, cutX, offset, rotRad, yCenter)
+    }
+
+    const drawSplitWordHalves = (
+      layout: MonsterLayoutSnapshot,
+      textMetrics: WordTextMetrics,
+      cutX: number,
+      offset: number,
+      rotRad: number,
+      yCenter: number,
+    ) => {
+      const text = word.full.toUpperCase()
+      const cutIdx = clampInt(word.boundaryIndex, 0, text.length)
+      const len = Math.max(1, text.length)
+      const y = wordZone.wordY
+      const combinedScale = layout.textFailScale
+      const totalW = textMetrics.totalWidth
+      const baseX0 = layout.monsterX - totalW / 2
+      const padH = WORD_FONT_SIZE + 40
+      const padY = y - padH / 2
+      ctx.save()
+      ctx.translate(layout.monsterX, y)
+      ctx.scale(combinedScale, combinedScale)
+      ctx.translate(-layout.monsterX, -y)
+
+      const cutLocalX = layout.monsterX + (cutX - layout.monsterX) / Math.max(1e-6, combinedScale)
+      const yCenterLocal = y + (yCenter - y) / combinedScale
+      const offsetLocal = offset / combinedScale
+
+      const applyHalfTransform = (side: 'left' | 'right') => {
+        const dir = side === 'left' ? -1 : 1
+        ctx.translate(dir * offsetLocal, 0)
+        ctx.translate(cutLocalX, yCenterLocal)
+        ctx.rotate(dir * rotRad)
+        ctx.translate(-cutLocalX, -yCenterLocal)
+      }
+
+      if (cutIdx > 0) {
+        ctx.save()
+        applyHalfTransform('left')
+        const leftPadX = baseX0 - 28
+        const leftPadW = Math.max(40, cutLocalX - leftPadX + 12)
+        roundRect(ctx, leftPadX, padY, leftPadW, padH, 18)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.45)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        for (let i = 0; i < cutIdx; i++) {
+          const ch = text[i]!
+          const cx = baseX0 + (textMetrics.charLeftOffsets[i] ?? 0)
+          drawExtrudedChar(ctx, ch, cx, y, WORD_FONT_SIZE, false, 0)
+        }
+        ctx.restore()
+      }
+
+      if (cutIdx < len) {
+        ctx.save()
+        applyHalfTransform('right')
+        const rightPadX = cutLocalX - 12
+        const rightPadW = Math.max(40, baseX0 + totalW + 28 - rightPadX)
+        roundRect(ctx, rightPadX, padY, rightPadW, padH, 18)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.45)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        for (let i = cutIdx; i < len; i++) {
+          const ch = text[i]!
+          const cx = baseX0 + (textMetrics.charLeftOffsets[i] ?? 0)
+          drawExtrudedChar(ctx, ch, cx, y, WORD_FONT_SIZE, false, 0)
+        }
+        ctx.restore()
+      }
+
+      ctx.restore()
+    }
+
     const drawSkeleton = () => {
       ctx.save()
       roundRect(ctx, CANVAS_WIDTH / 2 - 240, wordZone.wordY - 46, 480, 92, 22)
@@ -541,8 +867,8 @@ export function GameCanvas({
       ctx.lineJoin = 'round'
       ctx.globalCompositeOperation = 'lighter'
 
-      const hotStreak = streak >= 3
-      const warmStreak = streak >= 2
+      const hotCombo = combo >= 3
+      const warmCombo = combo >= 2
 
       for (let i = 1; i < trail.length; i++) {
         const a = trail[i - 1]!
@@ -552,12 +878,12 @@ export function GameCanvas({
         const progress = i / (trail.length - 1)
         const coreW = 2 + 7 * (1 - progress) * life
 
-        const glowR = hotStreak ? 56 : warmStreak ? 168 : 168
-        const glowG = hotStreak ? 189 : warmStreak ? 85 : 85
-        const glowB = hotStreak ? 248 : warmStreak ? 247 : 247
-        const coreR = hotStreak ? 253 : warmStreak ? 251 : 250
-        const coreG = hotStreak ? 224 : warmStreak ? 191 : 204
-        const coreB = hotStreak ? 71 : warmStreak ? 36 : 21
+        const glowR = hotCombo ? 56 : warmCombo ? 168 : 168
+        const glowG = hotCombo ? 189 : warmCombo ? 85 : 85
+        const glowB = hotCombo ? 248 : warmCombo ? 247 : 247
+        const coreR = hotCombo ? 253 : warmCombo ? 251 : 250
+        const coreG = hotCombo ? 224 : warmCombo ? 191 : 204
+        const coreB = hotCombo ? 71 : warmCombo ? 36 : 21
 
         ctx.strokeStyle = `rgba(${glowR}, ${glowG}, ${glowB}, ${0.14 * life})`
         ctx.lineWidth = coreW + 8
@@ -566,14 +892,14 @@ export function GameCanvas({
         ctx.lineTo(b.x, b.y)
         ctx.stroke()
 
-        ctx.strokeStyle = `rgba(${coreR}, ${coreG}, ${coreB}, ${(hotStreak ? 0.78 : 0.62) * life})`
+        ctx.strokeStyle = `rgba(${coreR}, ${coreG}, ${coreB}, ${(hotCombo ? 0.78 : 0.62) * life})`
         ctx.lineWidth = coreW
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
         ctx.stroke()
 
-        ctx.strokeStyle = `rgba(255, 255, 255, ${(hotStreak ? 0.42 : 0.28) * life})`
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(hotCombo ? 0.42 : 0.28) * life})`
         ctx.lineWidth = Math.max(1.5, coreW * 0.35)
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
@@ -588,44 +914,27 @@ export function GameCanvas({
       const d = deflectRef.current
       if (!d) return
       const age = performance.now() - d.startMs
-      if (age > 500) {
+      if (age > DEFLECT_BEAM_MS) {
         deflectRef.current = null
         return
       }
 
-      const t = age / 500
-      const len = 80 + t * 120
-      const x2 = d.x + Math.cos(d.angle) * len
-      const y2 = d.y + Math.sin(d.angle) * len * 0.6 - t * 40
+      const t = age / DEFLECT_BEAM_MS
+      const alpha = 1 - t * t
+      const pathLen = d.segments.reduce(
+        (sum, seg) => sum + Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1),
+        0,
+      )
+      const travel = Math.min(pathLen, (70 + t * 420) * (1 - t * 0.12))
 
-      ctx.save()
-      ctx.lineCap = 'round'
-      ctx.strokeStyle = `rgba(250, 204, 21, ${(1 - t).toFixed(3)})`
-      ctx.lineWidth = 5
-      ctx.beginPath()
-      ctx.moveTo(d.x, d.y)
-      ctx.lineTo(x2, y2)
-      ctx.stroke()
-
-      ctx.fillStyle = `rgba(226, 232, 240, ${(1 - t).toFixed(3)})`
-      for (let i = 0; i < 6; i++) {
-        const ang = d.angle + (i - 3) * 0.35
-        const r = 8 + t * 30
-        ctx.beginPath()
-        ctx.arc(d.x + Math.cos(ang) * r, d.y + Math.sin(ang) * r * 0.5, 2.5, 0, Math.PI * 2)
-        ctx.fill()
-      }
-      ctx.restore()
-    }
-
-    const drawSuccessFlash = () => {
-      const age = performance.now() - successFlashStartRef.current
-      if (age < 0 || age > 220) return
-      const alpha = 0.38 * (1 - age / 220)
-      ctx.save()
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-      ctx.restore()
+      drawDeflectImpactSpark(ctx, d.x, d.y, age, reduceMotion)
+      drawDeflectBeamAlongPath(
+        ctx,
+        d.segments,
+        travel,
+        alpha,
+        reduceMotion ? 3 : 5 + (1 - t) * 4,
+      )
     }
 
     const drawInstruction = (layout: MonsterLayoutSnapshot) => {
@@ -647,7 +956,13 @@ export function GameCanvas({
     const frame = (now: number) => {
       const deltaMs = Math.min(48, now - lastFrameMs)
       lastFrameMs = now
-      const deltaSec = deltaMs / 1000
+      const hitStopped = !reduceMotion && now < hitStopUntilRef.current
+      const deltaSec = hitStopped ? 0 : deltaMs / 1000
+      const effectNow = hitStopped
+        ? gameStatus === 'success'
+          ? successSplitStartRef.current
+          : failFrozenAtRef.current || now
+        : now
       const speed = getMonsterSpeedPxPerSec(failCount)
 
       if (gameStatus === 'playing') {
@@ -687,19 +1002,41 @@ export function GameCanvas({
         onLayoutSnapshot(layout)
       }
 
+      const drawLayout =
+        gameStatus === 'success' && frozenSuccessLayoutRef.current
+          ? frozenSuccessLayoutRef.current
+          : layout
+
       ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
-      drawBackground(layout)
+      drawBackground(drawLayout)
 
       if (loading) {
         drawSkeleton()
-      } else if (gameStatus !== 'success') {
+      } else if (gameStatus === 'success') {
+        tickDebrisWaves(debrisWaveStateRef, splitDebrisRef, dustPuffsRef, effectNow)
+        drawSplitMonster(drawLayout, textMetrics, effectNow)
+        updateSplitDebris(splitDebrisRef.current, deltaSec, effectNow)
+        drawDustPuffs(ctx, dustPuffsRef.current, effectNow)
+        drawSplitDebris(ctx, splitDebrisRef.current, effectNow)
+      } else {
         drawMonster(layout, textMetrics)
+      }
+
+      if (missDebrisRef.current.length > 0) {
+        updateSplitDebris(missDebrisRef.current, deltaSec, effectNow)
+        drawSplitDebris(ctx, missDebrisRef.current, effectNow)
+        missDebrisRef.current = missDebrisRef.current.filter(
+          (p) => effectNow - p.bornAt < p.lifeMs,
+        )
       }
 
       drawNeonLaser()
       drawDeflection()
-      drawSuccessFlash()
-      drawInstruction(layout)
+      drawFailJuiceEffects(ctx, failJuiceRef.current, now, reduceMotion)
+      drawSuccessJuiceEffects(ctx, successJuiceRef.current, now, reduceMotion)
+      if (gameStatus !== 'success') {
+        drawInstruction(layout)
+      }
 
       if (import.meta.env.DEV && devOverlay) {
         const tol = AGE_TOLERANCE[ageMode]
@@ -746,7 +1083,7 @@ export function GameCanvas({
     failScale,
     wordZone,
     onLayoutSnapshot,
-    streak,
+    combo,
     reduceMotion,
   ])
 
@@ -757,10 +1094,15 @@ export function GameCanvas({
         className="h-full w-full"
         animate={
           reduceMotion || shakeKey === 0
-            ? { x: 0 }
-            : { x: [0, -8, 8, -5, 5, 0] }
+            ? { x: 0, scale: 1 }
+            : shakeKind === 'success'
+              ? { x: [0, -12, 12, -8, 8, 0], scale: [1, 1.042, 1] }
+              : { x: [0, -8, 8, -5, 5, 0], scale: 1 }
         }
-        transition={{ duration: 0.38, ease: 'easeOut' }}
+        transition={{
+          duration: shakeKind === 'success' ? 0.32 : 0.38,
+          ease: 'easeOut',
+        }}
       >
         <canvas
           ref={canvasRef}
@@ -930,6 +1272,589 @@ function getSlashXAtWordY(
   if (t < 0) return start.x
   if (t > 1) return end.x
   return start.x + (end.x - start.x) * t
+}
+
+function clampInt(n: number, min: number, max: number) {
+  if (Number.isNaN(n)) return min
+  return Math.max(min, Math.min(max, n))
+}
+
+function computeMonsterBodyRectStatic(
+  layout: MonsterLayoutSnapshot,
+  monsterImg: HTMLImageElement | null,
+  wordY: number,
+): MonsterBodyRect {
+  const totalScale = layout.totalScale
+  const aspect =
+    monsterImg?.complete && monsterImg.naturalWidth > 0
+      ? monsterImg.naturalHeight / monsterImg.naturalWidth
+      : 0.62
+  const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
+  const w = baseW * totalScale
+  const h = w * aspect
+  const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordY)
+  const x = layout.monsterX - w / 2
+  const y = yCenter - h / 2
+  const depthAlpha = 0.5 + 0.5 * layout.approachProgress
+  return { x, y, w, h, xCenter: layout.monsterX, yCenter, depthAlpha, totalScale }
+}
+
+function buildDeflectSegments(
+  x0: number,
+  y0: number,
+  angle: number,
+  maxBounces = 2,
+): DeflectSegment[] {
+  const segments: DeflectSegment[] = []
+  const margin = 12
+  const segLen = 170
+  let x = x0
+  let y = y0
+  let dir = angle
+
+  for (let bounce = 0; bounce <= maxBounces; bounce++) {
+    const tx = x + Math.cos(dir) * segLen
+    const ty = y + Math.sin(dir) * segLen
+    let hitWall: 'left' | 'right' | 'top' | 'bottom' | null = null
+    let tHit = 1
+
+    const consider = (t: number, wall: typeof hitWall) => {
+      if (t > 0.001 && t <= 1 && t < tHit) {
+        tHit = t
+        hitWall = wall
+      }
+    }
+
+    if (Math.abs(tx - x) > 1e-6) {
+      if (tx < x) consider((margin - x) / (tx - x), 'left')
+      if (tx > x) consider((CANVAS_WIDTH - margin - x) / (tx - x), 'right')
+    }
+    if (Math.abs(ty - y) > 1e-6) {
+      if (ty < y) consider((margin - y) / (ty - y), 'top')
+      if (ty > y) consider((CANVAS_HEIGHT - margin - y) / (ty - y), 'bottom')
+    }
+
+    const ex = x + (tx - x) * tHit
+    const ey = y + (ty - y) * tHit
+    segments.push({ x1: x, y1: y, x2: ex, y2: ey })
+
+    if (!hitWall || bounce >= maxBounces) break
+
+    x = ex
+    y = ey
+    if (hitWall === 'left' || hitWall === 'right') dir = Math.PI - dir
+    else dir = -dir
+  }
+
+  return segments
+}
+
+function drawDeflectBeamAlongPath(
+  ctx: CanvasRenderingContext2D,
+  segments: DeflectSegment[],
+  travelDist: number,
+  alpha: number,
+  coreW: number,
+) {
+  let remaining = travelDist
+  for (const seg of segments) {
+    const dx = seg.x2 - seg.x1
+    const dy = seg.y2 - seg.y1
+    const len = Math.hypot(dx, dy)
+    if (len < 1e-6) continue
+    if (remaining <= 0) break
+    const drawLen = Math.min(remaining, len)
+    const x2 = seg.x1 + (dx / len) * drawLen
+    const y2 = seg.y1 + (dy / len) * drawLen
+    strokeNeonBeamSegment(ctx, seg.x1, seg.y1, x2, y2, alpha, coreW)
+    remaining -= len
+  }
+}
+
+function spawnMissDebris(
+  x: number,
+  y: number,
+  floorY: number,
+  now: number,
+  reduceMotion: boolean,
+): DebrisFragment[] {
+  const count = reduceMotion ? MISS_DEBRIS_COUNT.reduce : MISS_DEBRIS_COUNT.normal
+  const pieces: DebrisFragment[] = []
+
+  for (let i = 0; i < count; i++) {
+    const seed = i + 1
+    const side: -1 | 1 = i % 2 === 0 ? -1 : 1
+    const kind: DebrisKind = i % 3 === 0 ? 'chunk' : 'medium'
+    const angle =
+      side < 0
+        ? Math.PI * (0.62 + debrisRand(seed + 41) * 0.22)
+        : Math.PI * (0.16 + debrisRand(seed + 41) * 0.2)
+    const speed = (reduceMotion ? 260 : 380) + debrisRand(seed + 11) * (reduceMotion ? 160 : 260)
+    const palette = STONE_PALETTE[seed % STONE_PALETTE.length]!
+    const size =
+      kind === 'chunk'
+        ? (reduceMotion ? 6 : 8) + debrisRand(seed + 23) * (reduceMotion ? 4 : 7)
+        : (reduceMotion ? 4 : 5.5) + debrisRand(seed + 23) * (reduceMotion ? 3 : 5)
+
+    pieces.push({
+      x: x + (debrisRand(seed + 7) - 0.5) * 14,
+      y: y + (debrisRand(seed + 3) - 0.5) * 10,
+      vx: Math.cos(angle) * speed + (debrisRand(seed + 17) - 0.5) * 24,
+      vy: -Math.sin(angle) * speed * 1.25,
+      rot: debrisRand(seed + 31) * Math.PI * 2,
+      rotSpeed: side * (reduceMotion ? 4 : 8 + debrisRand(seed + 37) * 5),
+      size,
+      verts: makeDebrisVerts(seed, kind),
+      fill: palette.fill,
+      stroke: palette.stroke,
+      highlight: palette.highlight,
+      bornAt: now,
+      lifeMs:
+        (reduceMotion ? 900 : 1300) + debrisRand(seed + 29) * (reduceMotion ? 250 : 400),
+      kind,
+      floorY,
+      bouncesLeft: reduceMotion ? 1 : 2,
+    })
+  }
+
+  return pieces
+}
+
+function drawFailJuiceEffects(
+  ctx: CanvasRenderingContext2D,
+  juice: FailJuiceSnapshot | null,
+  now: number,
+  reduceMotion: boolean,
+) {
+  if (!juice) return
+  const age = now - juice.startMs
+  if (age < 0) return
+
+  if (age < FAIL_FLASH_MS) {
+    const t = age / FAIL_FLASH_MS
+    const alpha = (1 - t) * (reduceMotion ? 0.22 : 0.38)
+    const r = 40 + t * (reduceMotion ? 220 : 360)
+    const g = ctx.createRadialGradient(juice.x, juice.y, 0, juice.x, juice.y, r)
+    g.addColorStop(0, `rgba(255, 228, 196, ${alpha})`)
+    g.addColorStop(0.35, `rgba(251, 146, 60, ${alpha * 0.65})`)
+    g.addColorStop(0.7, `rgba(239, 68, 68, ${alpha * 0.22})`)
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.save()
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    ctx.restore()
+  }
+}
+
+function computeDeflectReflectAngle(
+  trail: TrailPoint[],
+  touchX: number,
+  boundaryX: number,
+): number {
+  if (trail.length >= 2) {
+    const last = trail[trail.length - 1]!
+    const prev = trail[trail.length - 2]!
+    const dx = last.x - prev.x
+    const dy = last.y - prev.y
+    if (dx * dx + dy * dy > 4) {
+      return Math.PI - Math.atan2(dy, dx)
+    }
+  }
+  const away = touchX >= boundaryX ? 1 : -1
+  return away > 0 ? 0.25 + Math.random() * 0.55 : Math.PI - 0.25 - Math.random() * 0.55
+}
+
+function strokeNeonBeamSegment(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  alpha: number,
+  coreW: number,
+) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.globalCompositeOperation = 'lighter'
+
+  ctx.strokeStyle = `rgba(168, 85, 247, ${(0.14 * alpha).toFixed(3)})`
+  ctx.lineWidth = coreW + 8
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(x2, y2)
+  ctx.stroke()
+
+  ctx.strokeStyle = `rgba(250, 204, 21, ${(0.62 * alpha).toFixed(3)})`
+  ctx.lineWidth = coreW
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(x2, y2)
+  ctx.stroke()
+
+  ctx.strokeStyle = `rgba(255, 255, 255, ${(0.28 * alpha).toFixed(3)})`
+  ctx.lineWidth = Math.max(1.5, coreW * 0.35)
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(x2, y2)
+  ctx.stroke()
+
+  ctx.restore()
+}
+
+function drawDeflectImpactSpark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  age: number,
+  reduceMotion: boolean,
+) {
+  if (age < 0 || age >= DEFLECT_SPARK_MS) return
+
+  const t = age / DEFLECT_SPARK_MS
+  const flashAlpha = (1 - t) * 0.42
+  const r = 18 + t * 70
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+  g.addColorStop(0, `rgba(255, 237, 213, ${flashAlpha})`)
+  g.addColorStop(0.35, `rgba(251, 146, 60, ${flashAlpha * 0.75})`)
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.save()
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  if (reduceMotion) return
+
+  for (let ring = 0; ring < 2; ring++) {
+    const rt = Math.max(0, (t - ring * 0.12) / (1 - ring * 0.12))
+    if (rt <= 0 || rt > 1) continue
+    const radius = 12 + rt * (48 + ring * 22)
+    const alpha = (1 - rt) * (0.62 - ring * 0.18)
+    ctx.save()
+    ctx.strokeStyle = `rgba(249, 115, 22, ${alpha.toFixed(3)})`
+    ctx.lineWidth = Math.max(1, 3.5 - ring * 0.8)
+    ctx.shadowColor = '#fb923c'
+    ctx.shadowBlur = 10 * alpha
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+  }
+}
+
+function drawSuccessJuiceEffects(
+  ctx: CanvasRenderingContext2D,
+  juice: SuccessJuiceSnapshot | null,
+  now: number,
+  reduceMotion: boolean,
+) {
+  if (!juice) return
+  const age = now - juice.startMs
+  if (age < 0) return
+
+  if (!reduceMotion && age < SUCCESS_SHOCKWAVE_MS) {
+    const t = age / SUCCESS_SHOCKWAVE_MS
+    for (let ring = 0; ring < 2; ring++) {
+      const rt = Math.max(0, (t - ring * 0.14) / (1 - ring * 0.14))
+      if (rt <= 0 || rt > 1) continue
+      const radius = 36 + rt * (200 + ring * 70)
+      const alpha = (1 - rt) * (0.58 - ring * 0.18)
+      ctx.save()
+      ctx.strokeStyle = `rgba(253, 224, 71, ${alpha.toFixed(3)})`
+      ctx.lineWidth = Math.max(1, 4.5 - ring * 1.4)
+      ctx.shadowColor = '#fde047'
+      ctx.shadowBlur = 12 * alpha
+      ctx.beginPath()
+      ctx.arc(juice.cutX, juice.yCenter, radius, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  if (age < 260) {
+    const t = age / 260
+    const alpha = (1 - t) * 0.48
+    const r = 50 + t * 400
+    const g = ctx.createRadialGradient(juice.cutX, juice.yCenter, 0, juice.cutX, juice.yCenter, r)
+    g.addColorStop(0, `rgba(255, 255, 255, ${alpha})`)
+    g.addColorStop(0.3, `rgba(253, 224, 71, ${alpha * 0.7})`)
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.save()
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    ctx.restore()
+  }
+}
+
+function debrisRand(seed: number): number {
+  return ((seed * 1103515245 + 12345) >>> 0) / 4294967296
+}
+
+function makeDebrisVerts(seed: number, kind: DebrisKind): [number, number][] {
+  if (kind === 'dust') {
+    const a = debrisRand(seed) * Math.PI * 2
+    return [
+      [Math.cos(a) * 0.5, Math.sin(a) * 0.35],
+      [Math.cos(a + 1.2) * 0.45, Math.sin(a + 1.2) * 0.4],
+      [Math.cos(a + 2.4) * 0.4, Math.sin(a + 2.4) * 0.38],
+    ]
+  }
+  const count = kind === 'chunk' ? 4 + (seed % 2) : 3 + (seed % 3)
+  const verts: [number, number][] = []
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + seed * 0.41
+    const r = 0.4 + debrisRand(seed + i * 17) * 0.6
+    verts.push([Math.cos(angle) * r, Math.sin(angle) * r])
+  }
+  return verts
+}
+
+function tickDebrisWaves(
+  waveStateRef: { current: DebrisWaveState | null },
+  debrisRef: { current: DebrisFragment[] },
+  puffsRef: { current: DustPuff[] },
+  now: number,
+) {
+  const ws = waveStateRef.current
+  if (!ws) return
+
+  const elapsed = now - ws.startMs
+  while (ws.wavesSpawned < DEBRIS_WAVE_DELAYS_MS.length) {
+    const delay = DEBRIS_WAVE_DELAYS_MS[ws.wavesSpawned]!
+    if (elapsed < delay) break
+    const waveIndex = ws.wavesSpawned
+    debrisRef.current.push(...spawnDebrisWave(waveIndex, ws, now))
+    if (waveIndex === 0 || waveIndex === 3) {
+      puffsRef.current.push(...spawnDustPuffs(ws, now, waveIndex))
+    }
+    ws.wavesSpawned++
+  }
+}
+
+function spawnDustPuffs(ws: DebrisWaveState, now: number, waveIndex: number): DustPuff[] {
+  const count = ws.reduceMotion ? 6 : waveIndex === 0 ? 12 : 8
+  const puffs: DustPuff[] = []
+  const span = Math.max(40, ws.yBottom - ws.yTop)
+  const driftScale = ws.reduceMotion ? 70 : waveIndex === 0 ? 160 : 120
+
+  for (let i = 0; i < count; i++) {
+    const side: -1 | 1 = i % 2 === 0 ? -1 : 1
+    const y = ws.yTop + debrisRand(i + 91 + waveIndex * 17) * span
+    puffs.push({
+      x: ws.cutX + (debrisRand(i + 37) - 0.5) * 16,
+      y,
+      bornAt: now,
+      lifeMs: ws.reduceMotion ? 720 : 1050,
+      maxRadius: (ws.reduceMotion ? 22 : 32) + debrisRand(i + 53) * (ws.reduceMotion ? 18 : 28),
+      driftX: side * (driftScale * 0.45 + debrisRand(i + 71) * driftScale * 0.55),
+      driftY: -(ws.reduceMotion ? 50 : 90) - debrisRand(i + 83) * (ws.reduceMotion ? 55 : 95),
+    })
+  }
+  return puffs
+}
+
+function spawnDebrisWave(
+  waveIndex: number,
+  ws: DebrisWaveState,
+  now: number,
+): DebrisFragment[] {
+  const kind = DEBRIS_WAVE_KINDS[waveIndex] ?? 'dust'
+  const counts = ws.reduceMotion ? DEBRIS_WAVE_COUNTS.reduce : DEBRIS_WAVE_COUNTS.normal
+  const count = Math.round((counts[waveIndex] ?? 12) * ws.countMul)
+  const span = Math.max(40, ws.yBottom - ws.yTop)
+  const pieces: DebrisFragment[] = []
+
+  for (let i = 0; i < count; i++) {
+    const seed = waveIndex * 1000 + i + 1
+    const side: -1 | 1 = i % 2 === 0 ? -1 : 1
+    const y = ws.yTop + debrisRand(seed + 3) * span
+    const x = ws.cutX + (debrisRand(seed + 7) - 0.5) * 12
+    const speedMul = ws.reduceMotion ? 0.58 : 1
+    const waveBoost = waveIndex === 0 ? 1.35 : waveIndex <= 2 ? 1.12 : 0.95
+    const baseSpeed =
+      kind === 'chunk' ? 420 + debrisRand(seed + 11) * 300
+      : kind === 'medium' ? 350 + debrisRand(seed + 11) * 240
+      : 250 + debrisRand(seed + 11) * 180
+    const speed = baseSpeed * speedMul * waveBoost * (0.92 + debrisRand(seed + 13) * 0.18)
+    const upwardBias = waveIndex === 0 ? 1.45 : waveIndex <= 2 ? 1.2 : 1.1
+    const isVerticalBurst = waveIndex === 0 && i % 5 === 0
+
+    let vx: number
+    let vy: number
+    if (isVerticalBurst) {
+      const upSpeed = speed * (1.15 + debrisRand(seed + 59) * 0.3)
+      vx = (debrisRand(seed + 61) - 0.5) * 45
+      vy = -upSpeed * 1.55
+    } else {
+      const angle =
+        side < 0
+          ? Math.PI * (0.7 + debrisRand(seed + 41) * 0.18)
+          : Math.PI * (0.11 + debrisRand(seed + 41) * 0.17)
+      vx = Math.cos(angle) * speed + (debrisRand(seed + 17) - 0.5) * 28
+      vy = -Math.sin(angle) * speed * upwardBias
+    }
+    const palette = STONE_PALETTE[(seed + waveIndex) % STONE_PALETTE.length]!
+    const size =
+      kind === 'chunk'
+        ? (ws.reduceMotion ? 7 : 10) + debrisRand(seed + 23) * (ws.reduceMotion ? 5 : 9)
+        : kind === 'medium'
+          ? (ws.reduceMotion ? 4.5 : 6) + debrisRand(seed + 23) * (ws.reduceMotion ? 4 : 7)
+          : (ws.reduceMotion ? 2 : 2.8) + debrisRand(seed + 23) * (ws.reduceMotion ? 2 : 4)
+    const lifeMs =
+      kind === 'chunk'
+        ? (ws.reduceMotion ? 1400 : 2300) + debrisRand(seed + 29) * (ws.reduceMotion ? 300 : 450)
+        : kind === 'medium'
+          ? (ws.reduceMotion ? 1200 : 2100) + debrisRand(seed + 29) * (ws.reduceMotion ? 280 : 380)
+          : (ws.reduceMotion ? 1000 : 1700) + debrisRand(seed + 29) * (ws.reduceMotion ? 240 : 320)
+
+    pieces.push({
+      x,
+      y,
+      vx,
+      vy,
+      rot: debrisRand(seed + 31) * Math.PI * 2,
+      rotSpeed: side * (ws.reduceMotion ? 3 : 7 + debrisRand(seed + 37) * 6),
+      size,
+      verts: makeDebrisVerts(seed, kind),
+      fill: palette.fill,
+      stroke: palette.stroke,
+      highlight: palette.highlight,
+      bornAt: now,
+      lifeMs,
+      kind,
+      floorY: ws.floorY,
+      bouncesLeft: kind === 'dust' ? 0 : ws.reduceMotion ? 1 : 2,
+    })
+  }
+
+  return pieces
+}
+
+function debrisAlpha(age: number, lifeMs: number): number {
+  if (age < 0 || age >= lifeMs) return 0
+  const t = age / lifeMs
+  if (t < DEBRIS_FADE_AFTER) return 1
+  return 1 - (t - DEBRIS_FADE_AFTER) / (1 - DEBRIS_FADE_AFTER)
+}
+
+function updateSplitDebris(pieces: DebrisFragment[], deltaSec: number, now: number) {
+  const dragX = Math.pow(DEBRIS_DRAG_X, deltaSec * 60)
+  const dragY = Math.pow(DEBRIS_DRAG_Y, deltaSec * 60)
+
+  for (const p of pieces) {
+    if (now < p.bornAt) continue
+    const age = now - p.bornAt
+    if (age >= p.lifeMs) continue
+
+    const gravityMul = age < DEBRIS_GRAVITY_BURST_MS ? DEBRIS_GRAVITY_BURST_MUL : 1
+    const vyDrag =
+      age < DEBRIS_VY_DRAG_FREE_MS
+        ? Math.pow(0.996, deltaSec * 60)
+        : dragY
+
+    p.vx *= dragX
+    p.vy *= vyDrag
+    p.vy += DEBRIS_GRAVITY * gravityMul * deltaSec
+    p.x += p.vx * deltaSec
+    p.y += p.vy * deltaSec
+    p.rot += p.rotSpeed * deltaSec
+
+    if (p.bouncesLeft > 0 && p.vy > 0 && p.y >= p.floorY) {
+      p.y = p.floorY
+      p.vy *= -DEBRIS_BOUNCE
+      p.vx *= 0.72
+      p.rotSpeed *= 0.65
+      p.bouncesLeft--
+    }
+  }
+}
+
+function drawDustPuffs(ctx: CanvasRenderingContext2D, puffs: DustPuff[], now: number) {
+  for (const puff of puffs) {
+    const age = now - puff.bornAt
+    if (age < 0 || age >= puff.lifeMs) continue
+
+    const t = age / puff.lifeMs
+    const alpha = (1 - t) * 0.38
+    const radius = puff.maxRadius * (0.25 + t * 0.95)
+    const x = puff.x + puff.driftX * t
+    const y = puff.y + puff.driftY * t
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    const g = ctx.createRadialGradient(x, y, 0, x, y, radius)
+    g.addColorStop(0, 'rgba(214, 211, 209, 0.55)')
+    g.addColorStop(0.45, 'rgba(168, 162, 158, 0.28)')
+    g.addColorStop(1, 'rgba(120, 113, 108, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
+function drawSplitDebris(ctx: CanvasRenderingContext2D, pieces: DebrisFragment[], now: number) {
+  if (pieces.length === 0) return
+
+  for (const p of pieces) {
+    const age = now - p.bornAt
+    const alpha = debrisAlpha(age, p.lifeMs)
+    if (alpha <= 0) continue
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+
+    if (p.kind !== 'dust') {
+      ctx.save()
+      ctx.globalAlpha = alpha * 0.28
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+      ctx.beginPath()
+      ctx.ellipse(p.x + 2, p.floorY + 3, p.size * 0.85, p.size * 0.28, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    ctx.translate(p.x, p.y)
+    ctx.rotate(p.rot)
+
+    if (p.kind === 'dust') {
+      ctx.beginPath()
+      ctx.arc(0, 0, p.size * 0.55, 0, Math.PI * 2)
+      ctx.fillStyle = p.fill
+      ctx.fill()
+      ctx.restore()
+      continue
+    }
+
+    ctx.beginPath()
+    const first = p.verts[0]
+    if (!first) {
+      ctx.restore()
+      continue
+    }
+    ctx.moveTo(first[0] * p.size, first[1] * p.size)
+    for (let i = 1; i < p.verts.length; i++) {
+      const v = p.verts[i]!
+      ctx.lineTo(v[0] * p.size, v[1] * p.size)
+    }
+    ctx.closePath()
+
+    const grad = ctx.createLinearGradient(-p.size, -p.size, p.size * 0.6, p.size * 0.8)
+    grad.addColorStop(0, p.highlight)
+    grad.addColorStop(0.55, p.fill)
+    grad.addColorStop(1, p.stroke)
+    ctx.fillStyle = grad
+    ctx.fill()
+    ctx.strokeStyle = p.stroke
+    ctx.lineWidth = p.kind === 'chunk' ? 1.4 : 1.1
+    ctx.stroke()
+
+    ctx.restore()
+  }
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

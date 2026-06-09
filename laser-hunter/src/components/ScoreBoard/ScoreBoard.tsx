@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 
 export function ScoreBoard({
   score,
-  streak,
+  combo,
   misses,
 }: {
   score: number
-  streak: number
+  combo: number
   misses: number
 }) {
   const prevScoreRef = useRef(score)
@@ -34,10 +34,10 @@ export function ScoreBoard({
       />
       <Badge
         emoji="🔥"
-        label="Streak"
-        value={streak}
+        label="Combo"
+        value={combo}
         color="from-orange-400 to-red-400"
-        highlight={streak >= 2}
+        highlight={combo >= 2}
       />
       <Badge emoji="💥" label="Miss" value={misses} color="from-pink-400 to-rose-400" />
     </div>

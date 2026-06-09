@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 
-type SoundKind = 'slice' | 'deflect' | 'success' | 'grow' | 'combo'
+type SoundKind = 'slice' | 'deflect' | 'success' | 'grow' | 'combo' | 'crack'
 
 export function useSoundEffects() {
   const ctxRef = useRef<AudioContext | null>(null)
@@ -48,6 +48,11 @@ export function useSoundEffects() {
         case 'slice':
           tone(880, 0.1, 'sawtooth', 0.06)
           tone(1320, 0.07, 'square', 0.045, 0.02)
+          break
+        case 'crack':
+          tone(95, 0.09, 'sawtooth', 0.11)
+          tone(180, 0.07, 'square', 0.07, 0.01)
+          tone(2400, 0.05, 'triangle', 0.04, 0.02)
           break
         case 'deflect':
           tone(220, 0.16, 'square', 0.1)
