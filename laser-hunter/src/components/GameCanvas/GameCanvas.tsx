@@ -1,5 +1,5 @@
-import { motion, useReducedMotion } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion, useAnimationControls, useReducedMotion } from 'framer-motion'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -173,8 +173,8 @@ export function GameCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  const [shakeKey, setShakeKey] = useState(0)
-  const [shakeKind, setShakeKind] = useState<'fail' | 'success' | null>(null)
+  // key 리마운트 방식은 <canvas>가 재생성되어 DPR 비트맵 설정이 날아가므로 controls로 흔듦
+  const shakeControls = useAnimationControls()
   const reduceMotion = useReducedMotion() ?? false
 
   const approachRef = useRef(0)
@@ -223,14 +223,6 @@ export function GameCanvas({
     () => Math.pow(gameConfig.monsterScaleUpOnFail, failCount),
     [failCount],
   )
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, Math.floor(window.devicePixelRatio || 1)))
-    canvas.width = CANVAS_WIDTH * dpr
-    canvas.height = CANVAS_HEIGHT * dpr
-  }, [])
 
   useEffect(() => {
     void document.fonts.load(`700 ${WORD_FONT_SIZE}px ${WORD_FONT_FAMILY}`)
@@ -337,8 +329,11 @@ export function GameCanvas({
       splitDebrisRef.current = []
       dustPuffsRef.current = []
       if (!reduceMotion) {
-        setShakeKind('success')
-        setShakeKey((k) => k + 1)
+        void shakeControls.start({
+          x: [0, -12, 12, -8, 8, 0],
+          scale: [1, 1.042, 1],
+          transition: { duration: 0.32, ease: 'easeOut' },
+        })
       }
       return
     }
@@ -388,10 +383,13 @@ export function GameCanvas({
     }
     approachRef.current = Math.max(0, approachRef.current - 0.07 - failCount * 0.025)
     if (!reduceMotion) {
-      setShakeKind('fail')
-      setShakeKey((k) => k + 1)
+      void shakeControls.start({
+        x: [0, -8, 8, -5, 5, 0],
+        scale: 1,
+        transition: { duration: 0.38, ease: 'easeOut' },
+      })
     }
-  }, [gameStatus, failCount, wordZone.wordY, reduceMotion, combo])
+  }, [gameStatus, failCount, wordZone.wordY, reduceMotion, combo, shakeControls])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -508,7 +506,12 @@ export function GameCanvas({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // 캔버스 엘리먼트가 새로 생겨도 비트맵 크기와 DPR 변환이 항상 일치하도록 여기서 함께 보장
     const dpr = Math.min(MAX_CANVAS_DPR, Math.max(1, Math.floor(window.devicePixelRatio || 1)))
+    if (canvas.width !== CANVAS_WIDTH * dpr || canvas.height !== CANVAS_HEIGHT * dpr) {
+      canvas.width = CANVAS_WIDTH * dpr
+      canvas.height = CANVAS_HEIGHT * dpr
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     let raf = 0
@@ -1092,21 +1095,7 @@ export function GameCanvas({
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden">
-      <motion.div
-        key={shakeKey}
-        className="h-full w-full"
-        animate={
-          reduceMotion || shakeKey === 0
-            ? { x: 0, scale: 1 }
-            : shakeKind === 'success'
-              ? { x: [0, -12, 12, -8, 8, 0], scale: [1, 1.042, 1] }
-              : { x: [0, -8, 8, -5, 5, 0], scale: 1 }
-        }
-        transition={{
-          duration: shakeKind === 'success' ? 0.32 : 0.38,
-          ease: 'easeOut',
-        }}
-      >
+      <motion.div className="h-full w-full" animate={shakeControls}>
         <canvas
           ref={canvasRef}
           width={CANVAS_WIDTH}
