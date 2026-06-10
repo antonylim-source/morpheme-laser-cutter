@@ -42,6 +42,8 @@ type Props = {
 type TrailPoint = { x: number; y: number; t: number }
 
 const MAX_CANVAS_DPR = 2
+/** fail 성장 후에도 몬스터가 스테이지(캔버스) 좌우로 잘리지 않게 하는 폭 상한 */
+const MONSTER_MAX_WIDTH = CANVAS_WIDTH - 40
 const MAX_TRAIL_POINTS = 48
 const TRAIL_LIFE_MS = 1200
 const TRAIL_MIN_DIST_SQ = 6 * 6
@@ -549,7 +551,8 @@ export function GameCanvas({
           : 0.62
 
       const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
-      const w = baseW * totalScale
+      // fail 성장(×1.5^n)·grow punch가 겹쳐도 몬스터가 스테이지 밖으로 잘리지 않도록 폭 상한
+      const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
       const h = w * aspect
       const bob = reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * bobPhase
       const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob
@@ -1290,7 +1293,7 @@ function computeMonsterBodyRectStatic(
       ? monsterImg.naturalHeight / monsterImg.naturalWidth
       : 0.62
   const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
-  const w = baseW * totalScale
+  const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
   const h = w * aspect
   const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordY)
   const x = layout.monsterX - w / 2

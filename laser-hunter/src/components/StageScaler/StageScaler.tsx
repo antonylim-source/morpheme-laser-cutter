@@ -2,7 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { STAGE_HEIGHT, STAGE_WIDTH } from '../../constants/stageConfig'
 
 function computeStageScale(): number {
-  return Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT)
+  // 모바일에서 URL바·줌으로 innerWidth/innerHeight가 실제 가시 영역과 어긋나는 것 보정
+  const vv = window.visualViewport
+  const width = vv?.width ?? window.innerWidth
+  const height = vv?.height ?? window.innerHeight
+  return Math.min(width / STAGE_WIDTH, height / STAGE_HEIGHT)
 }
 
 export function StageScaler({ children }: { children: ReactNode }) {
@@ -11,7 +15,11 @@ export function StageScaler({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onResize = () => setScale(computeStageScale())
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    window.visualViewport?.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.visualViewport?.removeEventListener('resize', onResize)
+    }
   }, [])
 
   return (
