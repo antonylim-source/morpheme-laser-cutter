@@ -5,8 +5,9 @@ import { HintOverlay } from './components/HintOverlay'
 import { ScoreBoard } from './components/ScoreBoard'
 import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
-import { CANVAS_WIDTH, isWordSlashable } from './constants/gameConfig'
+import { CANVAS_WIDTH, MONSTER_TIERS, isWordSlashable } from './constants/gameConfig'
 import { estimateWordTextWidth } from './utils/wordTextMetrics'
+import { useBgm } from './hooks/useBgm'
 import { useBoundaryCheck } from './hooks/useBoundaryCheck'
 import { useGameState } from './hooks/useGameState'
 import { useSoundEffects } from './hooks/useSoundEffects'
@@ -21,7 +22,9 @@ function App() {
   const game = useGameState()
   const state = game.state
   const { checkBoundary } = useBoundaryCheck()
-  const { play: playSound } = useSoundEffects()
+  const [muted, setMuted] = useState(false)
+  const { play: playSound, stomp } = useSoundEffects(muted)
+  const bgm = useBgm()
   const prevStatusRef = useRef(state.status)
   const reduceMotion = useReducedMotion() ?? false
   const [feedback, setFeedback] = useState<{ kind: FeedbackKind; key: number } | null>(null)
@@ -77,6 +80,15 @@ function App() {
       if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
     }
   }, [state.status, game, gameOver])
+
+  // BGM: 음소거 동기화 + 시작 화면·게임 오버에서는 정지
+  useEffect(() => {
+    bgm.setMuted(muted)
+  }, [muted, bgm.setMuted])
+
+  useEffect(() => {
+    if (gameOver || state.status === 'idle') bgm.pause()
+  }, [gameOver, state.status, bgm.pause])
 
   // combo tracking
   useEffect(() => {
@@ -187,6 +199,10 @@ function App() {
       paths.add(w.image2)
       paths.add(w.combinedImage)
     }
+    // 몬스터 티어 이미지 — 게임 중 교체 시 깜빡임 방지
+    for (const tier of MONSTER_TIERS) {
+      paths.add(publicAsset(tier.image))
+    }
     const list = Array.from(paths).filter(Boolean)
     await Promise.all(
       list.map(
@@ -202,6 +218,8 @@ function App() {
   }
 
   const handleStartGame = async () => {
+    // 자동재생 정책상 사용자 제스처(클릭) 안에서 동기적으로 시작해야 함
+    bgm.play()
     if (imagesReady) {
       game.startGame()
       return
@@ -231,6 +249,8 @@ function App() {
             ageMode={ageMode}
             loading={imagesLoading && !imagesReady}
             devOverlay={devOverlay}
+            wordsDone={wordsDone}
+            onMonsterStep={(p) => stomp(0.25 + 0.75 * p)}
             onLayoutSnapshot={(layout) => {
               monsterLayoutRef.current = layout
               setBoundaryX01(layout.boundaryX01)
@@ -283,7 +303,16 @@ function App() {
           alt="Morpheme Laser Cutter"
           className="h-14 w-auto translate-y-[15px] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
         />
-        <div className="translate-y-[23px]">
+        <div className="flex translate-y-[23px] items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMuted((m) => !m)}
+            aria-label={muted ? '소리 켜기' : '소리 끄기'}
+            aria-pressed={muted}
+            className="btn-bounce pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border-[3px] border-white/90 bg-slate-800/80 text-lg shadow-[0_3px_0_rgba(0,0,0,0.2)]"
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
           <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
         </div>
       </header>

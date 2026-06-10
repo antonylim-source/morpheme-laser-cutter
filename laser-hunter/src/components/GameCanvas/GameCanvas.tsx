@@ -7,9 +7,11 @@ import {
   WORD_Y_POSITION,
   AGE_TOLERANCE,
   gameConfig,
+  getMonsterImagePath,
   getWordRevealAlpha,
   isWordSlashable,
 } from '../../constants/gameConfig'
+import { publicAsset } from '../../utils/publicAsset'
 import type { AgeMode, CompoundWord, GameState } from '../../types/game.types'
 import {
   APPROACH_EQUIV_DISTANCE_PX,
@@ -35,8 +37,12 @@ type Props = {
   ageMode?: AgeMode
   loading?: boolean
   devOverlay?: boolean
+  /** 완료한 단어 수 — 진행될수록 몬스터 접근 속도가 빨라짐 */
+  wordsDone?: number
   onSlashAttempt: (touchX: number, layout: MonsterLayoutSnapshot) => void
   onLayoutSnapshot?: (layout: MonsterLayoutSnapshot) => void
+  /** 몬스터 발걸음 박자마다 호출 (인자: 접근도 0~1) — 발소리 연출용 */
+  onMonsterStep?: (approachProgress: number) => void
 }
 
 type TrailPoint = { x: number; y: number; t: number }
@@ -48,8 +54,11 @@ const MAX_TRAIL_POINTS = 48
 const TRAIL_LIFE_MS = 1200
 const TRAIL_MIN_DIST_SQ = 6 * 6
 const SUCCESS_SPLIT_MS = 850
-const SUCCESS_SPLIT_OFFSET_PX = 130
-const SUCCESS_SPLIT_ROTATE_DEG = 5
+const SUCCESS_SPLIT_OFFSET_PX = 220
+const SUCCESS_SPLIT_ROTATE_DEG = 12
+/** 분열 반쪽이 위로 떴다가 떨어지는 포물선: 315t² − 275t (t=0.44에서 −60px, t=1에서 +40px) */
+const SUCCESS_SPLIT_ARC_A = 315
+const SUCCESS_SPLIT_ARC_B = 275
 const DEBRIS_GRAVITY = 980
 const DEBRIS_GRAVITY_BURST_MS = 100
 const DEBRIS_GRAVITY_BURST_MUL = 0.35
@@ -61,7 +70,7 @@ const DEBRIS_FADE_AFTER = 0.78
 const DEBRIS_WAVE_DELAYS_MS = [0, 120, 250, 420, 580]
 const DEBRIS_WAVE_KINDS: DebrisKind[] = ['chunk', 'medium', 'medium', 'dust', 'dust']
 const DEBRIS_WAVE_COUNTS = { normal: [26, 24, 22, 17, 22], reduce: [11, 11, 11, 10, 12] }
-const HIT_STOP_MS = 60
+const HIT_STOP_MS = 110
 const FAIL_HIT_STOP_MS = 50
 const SUCCESS_SHOCKWAVE_MS = 380
 const DEFLECT_BEAM_MS = 480
@@ -108,6 +117,28 @@ type DustPuff = {
   driftX: number
   driftY: number
 }
+
+type StarConfetti = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  rot: number
+  rotSpeed: number
+  size: number
+  color: string
+  bornAt: number
+  lifeMs: number
+}
+
+const STAR_CONFETTI_COLORS = [
+  '#fde047',
+  '#f472b6',
+  '#38bdf8',
+  '#4ade80',
+  '#fb923c',
+  '#a78bfa',
+] as const
 
 type DebrisWaveState = {
   cutX: number
@@ -167,8 +198,10 @@ export function GameCanvas({
   ageMode = 'standard',
   loading = false,
   devOverlay = false,
+  wordsDone = 0,
   onSlashAttempt,
   onLayoutSnapshot,
+  onMonsterStep,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -201,6 +234,7 @@ export function GameCanvas({
   const frozenSuccessLayoutRef = useRef<MonsterLayoutSnapshot | null>(null)
   const splitDebrisRef = useRef<DebrisFragment[]>([])
   const dustPuffsRef = useRef<DustPuff[]>([])
+  const starConfettiRef = useRef<StarConfetti[]>([])
   const debrisWaveStateRef = useRef<DebrisWaveState | null>(null)
   const hitStopUntilRef = useRef(0)
   const failFrozenAtRef = useRef(0)
@@ -209,6 +243,12 @@ export function GameCanvas({
   const missDebrisRef = useRef<DebrisFragment[]>([])
   const prevWordVisibleRef = useRef(false)
   const prevFailCountRef = useRef(failCount)
+  const lastStepMsRef = useRef(0)
+  // 콜백을 ref로 들고 있어 rAF 루프 effect가 매 렌더마다 재시작되지 않게 함
+  const onMonsterStepRef = useRef(onMonsterStep)
+  useEffect(() => {
+    onMonsterStepRef.current = onMonsterStep
+  }, [onMonsterStep])
 
   const wordZone = useMemo(
     () => ({
@@ -230,6 +270,7 @@ export function GameCanvas({
 
   useEffect(() => {
     approachRef.current = 0
+    lastStepMsRef.current = 0
     deflectRef.current = null
     trailRef.current = []
     textMetricsRef.current = null
@@ -240,6 +281,7 @@ export function GameCanvas({
     frozenSuccessLayoutRef.current = null
     splitDebrisRef.current = []
     dustPuffsRef.current = []
+    starConfettiRef.current = []
     debrisWaveStateRef.current = null
     hitStopUntilRef.current = 0
     failFrozenAtRef.current = 0
@@ -278,19 +320,20 @@ export function GameCanvas({
   }, [])
 
   useEffect(() => {
+    // 티어 교체 시 깜빡임이 없도록, 새 이미지가 로드될 때까지 기존 이미지를 유지
+    let cancelled = false
     const img = new Image()
-    // Vite base 경로(예: GitHub Pages 서브패스)를 반영
-    img.src = `${import.meta.env.BASE_URL}images/monster.png`
+    img.src = publicAsset(getMonsterImagePath(wordsDone))
     img.onload = () => {
-      monsterImgRef.current = img
+      if (!cancelled) monsterImgRef.current = img
     }
     img.onerror = () => {
-      monsterImgRef.current = null
+      if (!cancelled) monsterImgRef.current = null
     }
     return () => {
-      monsterImgRef.current = null
+      cancelled = true
     }
-  }, [])
+  }, [wordsDone])
 
   useEffect(() => {
     const prev = prevStatusRef.current
@@ -328,10 +371,16 @@ export function GameCanvas({
       }
       splitDebrisRef.current = []
       dustPuffsRef.current = []
+      starConfettiRef.current = spawnStarConfetti(
+        frozen.boundaryPixelX,
+        body.yCenter,
+        now,
+        reduceMotion,
+      )
       if (!reduceMotion) {
         void shakeControls.start({
-          x: [0, -12, 12, -8, 8, 0],
-          scale: [1, 1.042, 1],
+          x: [0, -18, 18, -12, 12, 0],
+          scale: [1, 1.07, 1],
           transition: { duration: 0.32, ease: 'easeOut' },
         })
       }
@@ -341,6 +390,7 @@ export function GameCanvas({
       frozenSuccessLayoutRef.current = null
       splitDebrisRef.current = []
       dustPuffsRef.current = []
+      starConfettiRef.current = []
       debrisWaveStateRef.current = null
       hitStopUntilRef.current = 0
       failFrozenAtRef.current = 0
@@ -553,7 +603,7 @@ export function GameCanvas({
           ? monsterImg.naturalHeight / monsterImg.naturalWidth
           : 0.62
 
-      const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
+      const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
       // fail 성장(×1.5^n)·grow punch가 겹쳐도 몬스터가 스테이지 밖으로 잘리지 않도록 폭 상한
       const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
       const h = w * aspect
@@ -574,6 +624,25 @@ export function GameCanvas({
       const monsterImg = monsterImgRef.current
 
       ctx.save()
+
+      // 발밑 그림자 — 접근할수록 커지고 진해져 접지감을 줌
+      {
+        const p = layout.approachProgress
+        const shadowY = Math.min(CANVAS_HEIGHT - 24, y + h - 6)
+        const rx = w * 0.46
+        ctx.save()
+        ctx.translate(cx, shadowY)
+        ctx.scale(1, 0.2)
+        const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
+        sg.addColorStop(0, `rgba(15, 23, 42, ${0.34 + 0.26 * p})`)
+        sg.addColorStop(0.65, `rgba(15, 23, 42, ${0.18 + 0.14 * p})`)
+        sg.addColorStop(1, 'rgba(15, 23, 42, 0)')
+        ctx.fillStyle = sg
+        ctx.beginPath()
+        ctx.arc(0, 0, rx, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
 
       if (failCount > 0) {
         const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 180)
@@ -728,6 +797,8 @@ export function GameCanvas({
       const ease = 1 - Math.pow(1 - t, 3)
       const offset = (reduceMotion ? 48 : SUCCESS_SPLIT_OFFSET_PX) * ease
       const rotRad = (reduceMotion ? 0 : SUCCESS_SPLIT_ROTATE_DEG) * ease * (Math.PI / 180)
+      // 반쪽이 위로 떴다가 아래로 떨어지는 포물선 (선형 t 기준 — 중력 느낌)
+      const arcY = reduceMotion ? 0 : SUCCESS_SPLIT_ARC_A * t * t - SUCCESS_SPLIT_ARC_B * t
 
       const monsterImg = monsterImgRef.current
       if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
@@ -745,7 +816,7 @@ export function GameCanvas({
         ctx.globalAlpha = depthAlpha
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
-        ctx.translate(cutX, yCenter)
+        ctx.translate(cutX, yCenter + arcY)
         ctx.rotate(-rotRad)
         ctx.translate(-cutX, -yCenter)
         ctx.drawImage(monsterImg, 0, 0, leftSrcW, nh, leftX, y, leftDestW, h)
@@ -755,22 +826,22 @@ export function GameCanvas({
         ctx.globalAlpha = depthAlpha
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
-        ctx.translate(cutX, yCenter)
+        ctx.translate(cutX, yCenter + arcY)
         ctx.rotate(rotRad)
         ctx.translate(-cutX, -yCenter)
         ctx.drawImage(monsterImg, cutSrc, 0, rightSrcW, nh, rightX, y, rightDestW, h)
         ctx.restore()
       } else {
         ctx.save()
-        roundRect(ctx, x - offset, y, w * cutLocal, h, 22 * layout.totalScale)
+        roundRect(ctx, x - offset, y + arcY, w * cutLocal, h, 22 * layout.totalScale)
         ctx.fillStyle = 'rgba(148, 163, 184, 0.2)'
         ctx.fill()
-        roundRect(ctx, cutX + offset, y, w * (1 - cutLocal), h, 22 * layout.totalScale)
+        roundRect(ctx, cutX + offset, y + arcY, w * (1 - cutLocal), h, 22 * layout.totalScale)
         ctx.fill()
         ctx.restore()
       }
 
-      drawSplitWordHalves(layout, textMetrics, cutX, offset, rotRad, yCenter)
+      drawSplitWordHalves(layout, textMetrics, cutX, offset, rotRad, yCenter, arcY)
     }
 
     const drawSplitWordHalves = (
@@ -780,6 +851,7 @@ export function GameCanvas({
       offset: number,
       rotRad: number,
       yCenter: number,
+      arcY = 0,
     ) => {
       const text = word.full.toUpperCase()
       const cutIdx = clampInt(word.boundaryIndex, 0, text.length)
@@ -798,10 +870,11 @@ export function GameCanvas({
       const cutLocalX = layout.monsterX + (cutX - layout.monsterX) / Math.max(1e-6, combinedScale)
       const yCenterLocal = y + (yCenter - y) / combinedScale
       const offsetLocal = offset / combinedScale
+      const arcYLocal = arcY / combinedScale
 
       const applyHalfTransform = (side: 'left' | 'right') => {
         const dir = side === 'left' ? -1 : 1
-        ctx.translate(dir * offsetLocal, 0)
+        ctx.translate(dir * offsetLocal, arcYLocal)
         ctx.translate(cutLocalX, yCenterLocal)
         ctx.rotate(dir * rotRad)
         ctx.translate(-cutLocalX, -yCenterLocal)
@@ -969,11 +1042,21 @@ export function GameCanvas({
           ? successSplitStartRef.current
           : failFrozenAtRef.current || now
         : now
-      const speed = getMonsterSpeedPxPerSec(failCount)
+      const speed = getMonsterSpeedPxPerSec(failCount, wordsDone)
 
       if (gameStatus === 'playing') {
         approachRef.current += (speed / APPROACH_EQUIV_DISTANCE_PX) * deltaSec
         approachRef.current = Math.min(1, approachRef.current)
+
+        // 발걸음 박자 — 가까워질수록 간격이 짧아짐 (발소리 연출)
+        const p = approachRef.current
+        if (!loading && p > 0.04 && p < 0.96) {
+          const stepIntervalMs = 680 - 380 * p
+          if (now - lastStepMsRef.current >= stepIntervalMs) {
+            lastStepMsRef.current = now
+            onMonsterStepRef.current?.(p)
+          }
+        }
       }
 
       if (textMetricsWordIdRef.current !== word.id || !textMetricsRef.current) {
@@ -1024,6 +1107,8 @@ export function GameCanvas({
         updateSplitDebris(splitDebrisRef.current, deltaSec, effectNow)
         drawDustPuffs(ctx, dustPuffsRef.current, effectNow)
         drawSplitDebris(ctx, splitDebrisRef.current, effectNow)
+        updateStarConfetti(starConfettiRef.current, deltaSec)
+        drawStarConfetti(ctx, starConfettiRef.current, effectNow)
       } else {
         drawMonster(layout, textMetrics)
       }
@@ -1091,6 +1176,7 @@ export function GameCanvas({
     onLayoutSnapshot,
     combo,
     reduceMotion,
+    wordsDone,
   ])
 
   return (
@@ -1281,7 +1367,7 @@ function computeMonsterBodyRectStatic(
     monsterImg?.complete && monsterImg.naturalWidth > 0
       ? monsterImg.naturalHeight / monsterImg.naturalWidth
       : 0.62
-  const baseW = Math.min(560, Math.max(300, layout.canvasWordWidth + 180))
+  const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
   const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
   const h = w * aspect
   const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordY)
@@ -1583,6 +1669,76 @@ function drawSuccessJuiceEffects(
 
 function debrisRand(seed: number): number {
   return ((seed * 1103515245 + 12345) >>> 0) / 4294967296
+}
+
+function spawnStarConfetti(
+  x: number,
+  y: number,
+  now: number,
+  reduceMotion: boolean,
+): StarConfetti[] {
+  const count = reduceMotion ? 10 : 28
+  const stars: StarConfetti[] = []
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + (debrisRand(i + 11) - 0.5) * 0.9
+    const speed = 220 + debrisRand(i + 29) * 420
+    stars.push({
+      x: x + (debrisRand(i + 5) - 0.5) * 30,
+      y: y + (debrisRand(i + 7) - 0.5) * 40,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 160,
+      rot: debrisRand(i + 13) * Math.PI * 2,
+      rotSpeed: (debrisRand(i + 17) - 0.5) * 10,
+      size: 7 + debrisRand(i + 23) * 9,
+      color: STAR_CONFETTI_COLORS[i % STAR_CONFETTI_COLORS.length]!,
+      bornAt: now,
+      lifeMs: 900 + debrisRand(i + 31) * 500,
+    })
+  }
+  return stars
+}
+
+function updateStarConfetti(stars: StarConfetti[], deltaSec: number) {
+  if (deltaSec <= 0) return
+  const drag = Math.exp(-1.6 * deltaSec)
+  for (const s of stars) {
+    s.vy += 620 * deltaSec
+    s.vx *= drag
+    s.x += s.vx * deltaSec
+    s.y += s.vy * deltaSec
+    s.rot += s.rotSpeed * deltaSec
+  }
+}
+
+function drawStarConfetti(ctx: CanvasRenderingContext2D, stars: StarConfetti[], now: number) {
+  for (const s of stars) {
+    const age = now - s.bornAt
+    if (age < 0 || age >= s.lifeMs) continue
+    const t = age / s.lifeMs
+    const alpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.translate(s.x, s.y)
+    ctx.rotate(s.rot)
+    ctx.fillStyle = s.color
+    ctx.shadowColor = s.color
+    ctx.shadowBlur = 8
+    drawStarPath(ctx, s.size)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
+function drawStarPath(ctx: CanvasRenderingContext2D, r: number) {
+  const inner = r * 0.45
+  ctx.beginPath()
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? r : inner
+    const a = -Math.PI / 2 + (i * Math.PI) / 5
+    if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad)
+    else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad)
+  }
+  ctx.closePath()
 }
 
 function makeDebrisVerts(seed: number, kind: DebrisKind): [number, number][] {

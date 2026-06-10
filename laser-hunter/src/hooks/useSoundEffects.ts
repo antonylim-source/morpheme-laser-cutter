@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react'
 
 type SoundKind = 'slice' | 'deflect' | 'success' | 'grow' | 'combo' | 'crack'
 
-export function useSoundEffects() {
+export function useSoundEffects(muted = false) {
   const ctxRef = useRef<AudioContext | null>(null)
 
   const getCtx = () => {
@@ -44,6 +44,7 @@ export function useSoundEffects() {
 
   const play = useCallback(
     (kind: SoundKind) => {
+      if (muted) return
       switch (kind) {
         case 'slice':
           tone(880, 0.1, 'sawtooth', 0.06)
@@ -76,8 +77,19 @@ export function useSoundEffects() {
           break
       }
     },
-    [tone],
+    [tone, muted],
   )
 
-  return { play }
+  /** 몬스터 발소리 — intensity(0~1)가 클수록 크고 묵직하게 */
+  const stomp = useCallback(
+    (intensity: number) => {
+      if (muted) return
+      const k = Math.max(0, Math.min(1, intensity))
+      tone(52 + 30 * k, 0.11, 'sine', 0.02 + 0.07 * k)
+      tone(38, 0.15, 'triangle', 0.012 + 0.05 * k, 0.012)
+    },
+    [tone, muted],
+  )
+
+  return { play, stomp }
 }

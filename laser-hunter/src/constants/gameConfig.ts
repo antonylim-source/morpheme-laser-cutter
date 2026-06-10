@@ -14,8 +14,27 @@ export const BOULDER_SPEED = {
   hard: 5,
 } as const
 
-/** 멀리 있을 때 몬스터 최소 스케일 (원근 접근) */
-export const MONSTER_APPROACH_MIN_SCALE = 0.3
+/** 멀리 있을 때 몬스터 최소 스케일 (원근 접근) — baseW ×1.2 보정으로 스폰 크기는 기존 유지 */
+export const MONSTER_APPROACH_MIN_SCALE = 0.25
+
+/** 완료 단어(wordsDone)당 몬스터 접근 속도 증가율 — 9단어째 약 1.54배(접근 약 4.2초 → 2.7초) */
+export const MONSTER_SPEED_RAMP_PER_WORD = 0.06
+
+/** wordsDone 구간별 몬스터 이미지 — 위협도 상승 티어, 마지막 단어는 보스 */
+export const MONSTER_TIERS = [
+  { minWords: 0, image: 'images/monster_4.png' }, // 거미 — 도입 (1~3번째 단어)
+  { minWords: 3, image: 'images/monster_1.png' }, // 골렘 — 중반 (4~6번째)
+  { minWords: 6, image: 'images/monster_3.png' }, // 그리핀 — 후반 (7~9번째)
+  { minWords: 9, image: 'images/monster_2.png' }, // 돌 야수 — 최종 보스 (10번째)
+] as const
+
+export function getMonsterImagePath(wordsDone: number): string {
+  let image: string = MONSTER_TIERS[0].image
+  for (const tier of MONSTER_TIERS) {
+    if (wordsDone >= tier.minWords) image = tier.image
+  }
+  return image
+}
 
 export const HINT_THRESHOLDS = [1, 2, 3] as const
 

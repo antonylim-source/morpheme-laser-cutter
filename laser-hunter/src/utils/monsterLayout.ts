@@ -1,6 +1,7 @@
 import {
   CANVAS_WIDTH,
   MONSTER_APPROACH_MIN_SCALE,
+  MONSTER_SPEED_RAMP_PER_WORD,
   WORD_LETTER_SPACING,
   WORD_Y_POSITION,
   gameConfig,
@@ -43,7 +44,8 @@ export function getCanvasWordWidth(wordLength: number): number {
 export function getApproachScale(progress: number): number {
   const t = Math.max(0, Math.min(1, progress))
   const min = MONSTER_APPROACH_MIN_SCALE
-  return min + (1 - min) * Math.pow(t, 0.88)
+  // 원근 근사(화면 크기 ∝ 1/거리): 가까울수록 가속적으로 커져 달려드는 느낌을 줌
+  return min + (1 - min) * Math.pow(t, 2.2)
 }
 
 /** 멀 때 위(지평선) → 가까울수록 단어 위치 쪽으로 이동 */
@@ -51,7 +53,8 @@ export function getMonsterVisualCenterY(
   progress: number,
   targetWordY: number = WORD_Y_POSITION,
 ): number {
-  const t = Math.pow(Math.max(0, Math.min(1, progress)), 0.85)
+  // 스케일 가속 커브와 맞춰 후반에 빠르게 내려오도록 ease-in
+  const t = Math.pow(Math.max(0, Math.min(1, progress)), 1.6)
   const farY = targetWordY - 115
   const nearY = targetWordY + 14
   return farY + (nearY - farY) * t
@@ -93,8 +96,13 @@ export function getAnimatedTextFailScale(
   return from + (target - from) * ease
 }
 
-export function getMonsterSpeedPxPerSec(failCount: number): number {
-  return gameConfig.monsterBaseSpeed * (1 + failCount * (gameConfig.monsterSpeedUpOnFail - 1))
+export function getMonsterSpeedPxPerSec(failCount: number, wordsDone = 0): number {
+  const wordsRamp = 1 + Math.min(wordsDone, 9) * MONSTER_SPEED_RAMP_PER_WORD
+  return (
+    gameConfig.monsterBaseSpeed *
+    wordsRamp *
+    (1 + failCount * (gameConfig.monsterSpeedUpOnFail - 1))
+  )
 }
 
 export function computeMonsterLayout(
