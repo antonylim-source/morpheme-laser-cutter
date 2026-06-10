@@ -287,13 +287,7 @@ function App() {
           <HintOverlay
             state={state}
             boundaryX01={boundaryX01}
-            onStart={() => {
-              if (state.status === 'success' || state.status === 'fail' || state.status === 'hint') {
-                game.nextWord()
-                return
-              }
-              handleStartGame()
-            }}
+            onStart={() => game.nextWord()}
           />
       </main>
 
@@ -313,30 +307,36 @@ function App() {
           >
             {muted ? '🔇' : '🔊'}
           </button>
-          <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
+          {state.status !== 'idle' && !gameOver ? (
+            <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
+          ) : null}
         </div>
       </header>
 
-      <div className="pointer-events-none absolute left-0 right-0 top-[52px] z-50 flex h-[48px] flex-col items-center justify-center">
-        <div className="font-display text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
-          🎯 Slice the middle of the word!
-        </div>
-        {combo >= 2 ? (
-          <div className="animate-wiggle text-sm font-bold text-yellow-300 drop-shadow-md">
-            🔥 {combo} Combo!
+      {state.status !== 'idle' && !gameOver ? (
+        <div className="pointer-events-none absolute left-0 right-0 top-[52px] z-50 flex h-[48px] flex-col items-center justify-center">
+          <div className="font-display text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
+            🎯 Slice the middle of the word!
           </div>
-        ) : null}
-      </div>
-
-      <footer className="absolute bottom-[10px] left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
-        <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
-          <span className="font-display text-sm font-extrabold text-white">🗺️ Progress</span>
-          <ProgressStars done={wordsDone} total={10} />
-          <span className="font-display text-sm font-bold text-yellow-200">
-            {wordsDone}/{10}
-          </span>
+          {combo >= 2 ? (
+            <div className="animate-wiggle text-sm font-bold text-yellow-300 drop-shadow-md">
+              🔥 {combo} Combo!
+            </div>
+          ) : null}
         </div>
-      </footer>
+      ) : null}
+
+      {state.status !== 'idle' && !gameOver ? (
+        <footer className="absolute bottom-[10px] left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
+          <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
+            <span className="font-display text-sm font-extrabold text-white">🗺️ Progress</span>
+            <ProgressStars done={wordsDone} total={10} />
+            <span className="font-display text-sm font-bold text-yellow-200">
+              {wordsDone}/{10}
+            </span>
+          </div>
+        </footer>
+      ) : null}
     </div>
   )
 }

@@ -713,9 +713,9 @@ export function GameCanvas({
       ctx.save()
       ctx.globalAlpha = textAlpha
       roundRect(ctx, padX, padY, padW, padH, 18)
-      ctx.fillStyle = heated ? 'rgba(69, 26, 3, 0.55)' : 'rgba(0, 0, 0, 0.52)'
+      ctx.fillStyle = heated ? 'rgba(69, 26, 3, 0.55)' : 'rgba(212, 196, 232, 0.28)'
       ctx.fill()
-      ctx.strokeStyle = heated ? 'rgba(251, 146, 60, 0.35)' : 'rgba(255, 255, 255, 0.12)'
+      ctx.strokeStyle = heated ? 'rgba(251, 146, 60, 0.35)' : 'rgba(107, 76, 154, 0.35)'
       ctx.lineWidth = 2
       ctx.stroke()
       ctx.restore()
@@ -1210,50 +1210,46 @@ function drawExtrudedChar(
   ctx.lineJoin = 'round'
   ctx.miterLimit = 2
 
-  const depth = 5
+  const depth = 10
   const heatPulse = heated ? 0.85 + 0.15 * Math.sin(performance.now() / 140 + x * 0.02) : 1
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
-  ctx.fillText(ch, x + depth + 2, y + depth + 3)
+  // 부드러운 드롭 섀도
+  ctx.fillStyle = heated ? 'rgba(127, 29, 29, 0.38)' : 'rgba(74, 45, 110, 0.34)'
+  ctx.fillText(ch, x + depth + 5, y + depth + 6)
 
+  // 3D 돌출 측면
   for (let d = depth; d >= 1; d--) {
     const t = d / depth
     if (heated) {
       const boost = 1 + failCount * 0.08
-      const r = Math.round((120 + t * 55) * boost * heatPulse)
-      const g = Math.round((18 + t * 18) * (1 - failCount * 0.06))
-      const b = Math.round(4 + t * 4)
+      const r = Math.round((140 + t * 40) * boost * heatPulse)
+      const g = Math.round((22 + t * 12) * (1 - failCount * 0.05))
+      const b = Math.round(8 + t * 6)
       ctx.fillStyle = `rgb(${Math.min(255, r)}, ${g}, ${b})`
     } else {
-      const shade = Math.round(18 + t * 38)
-      ctx.fillStyle = `rgb(${shade}, ${shade + 6}, ${shade + 14})`
+      const r = Math.round(107 - t * 44) // #6b4c9a → #3d2560
+      const g = Math.round(76 - t * 34)
+      const b = Math.round(154 - t * 70)
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
     }
     ctx.fillText(ch, x + d, y + d)
   }
 
+  // 두꺼운 외곽선
   ctx.lineWidth = 10
-  ctx.strokeStyle = heated ? '#7f1d1d' : '#000000'
+  ctx.strokeStyle = heated ? '#7f1d1d' : '#3d2560'
   ctx.strokeText(ch, x, y)
 
   ctx.lineWidth = 2.5
-  ctx.strokeStyle = heated ? 'rgba(254, 202, 202, 0.95)' : 'rgba(255, 255, 255, 0.9)'
+  ctx.strokeStyle = heated ? 'rgba(254, 202, 202, 0.9)' : 'rgba(255, 255, 255, 0.85)'
   ctx.strokeText(ch, x, y)
 
-  const face = ctx.createLinearGradient(x, y - fontSize * 0.48, x, y + fontSize * 0.32)
-  if (heated) {
-    face.addColorStop(0, '#fff7ed')
-    face.addColorStop(0.4, '#fed7aa')
-    face.addColorStop(0.75, '#fdba74')
-    face.addColorStop(1, '#f97316')
-  } else {
-    face.addColorStop(0, '#ffffff')
-    face.addColorStop(0.6, '#ffffff')
-    face.addColorStop(1, '#f8fafc')
-  }
-  ctx.fillStyle = face
+  // 앞면 — 단색 (파닉스 가독성 우선)
+  ctx.fillStyle = heated ? '#fff7ed' : '#ffffff'
   ctx.fillText(ch, x, y)
 
-  ctx.fillStyle = heated ? 'rgba(255, 237, 213, 0.45)' : 'rgba(255, 255, 255, 0.38)'
+  // 상단 하이라이트
+  ctx.fillStyle = heated ? 'rgba(255, 251, 235, 0.5)' : 'rgba(255, 255, 255, 0.42)'
   ctx.fillText(ch, x - 1, y - 2.5)
 
   ctx.restore()

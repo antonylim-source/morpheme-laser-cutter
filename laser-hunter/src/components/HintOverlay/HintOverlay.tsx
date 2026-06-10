@@ -57,9 +57,9 @@ export function HintOverlay({
         ) : null}
       </AnimatePresence>
 
-      {/* Modal overlay for start / hint only */}
+      {/* Hint modal (3 misses) — start screen is handled by StartScreen */}
       <AnimatePresence>
-        {state.status === 'idle' || state.status === 'hint' ? (
+        {state.status === 'hint' ? (
           <motion.div
             className="absolute inset-0 z-40 flex items-center justify-center bg-sky-900/40"
             initial={{ opacity: 0 }}
@@ -73,10 +73,8 @@ export function HintOverlay({
               exit={{ y: 8, scale: 0.99, opacity: 0 }}
               transition={{ duration: reduce ? 0.25 : 0.45 }}
             >
-              <div className="text-3xl">{state.status === 'hint' ? '💡' : '👀'}</div>
-              <div className="font-display mt-1 text-lg font-extrabold text-white">
-                {state.status === 'hint' ? '정답 힌트!' : '이번 괴물 단어'}
-              </div>
+              <div className="text-3xl">💡</div>
+              <div className="font-display mt-1 text-lg font-extrabold text-white">Answer Hint!</div>
 
               <div className="font-display mt-3 text-3xl font-extrabold tracking-wide text-yellow-200 drop-shadow-md">
                 {state.currentWord.full.toUpperCase()}
@@ -88,22 +86,16 @@ export function HintOverlay({
                 <span className="rounded-lg bg-white/25 px-2 py-0.5">{state.currentWord.morpheme2}</span>
               </div>
 
-              {state.status === 'hint' ? (
-                <div className="bubble-panel mt-3 border-cyan-200/80 bg-cyan-100/90 px-3 py-2 text-sm font-bold text-cyan-900">
-                  ✨ 이렇게 나눠요: {state.currentWord.morpheme1} | {state.currentWord.morpheme2}
-                </div>
-              ) : (
-                <div className="mt-3 text-sm font-semibold text-white/90">
-                  괴물이 다가오면 단어 가운데를 쓱— 베어보세요!
-                </div>
-              )}
+              <div className="bubble-panel mt-3 border-cyan-200/80 bg-cyan-100/90 px-3 py-2 text-sm font-bold text-cyan-900">
+                ✨ Split here: {state.currentWord.morpheme1} | {state.currentWord.morpheme2}
+              </div>
 
               <button
                 type="button"
                 onClick={onStart}
                 className="btn-bounce font-display mt-4 rounded-2xl border-[3px] border-white bg-gradient-to-b from-lime-300 to-green-500 px-8 py-2.5 text-lg font-extrabold text-white shadow-[0_4px_0_rgba(0,0,0,0.2)]"
               >
-                {state.status === 'hint' ? '다음 괴물 →' : '준비 완료!'}
+                Next Monster →
               </button>
             </motion.div>
           </motion.div>
