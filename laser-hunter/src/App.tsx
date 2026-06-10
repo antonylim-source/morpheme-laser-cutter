@@ -6,6 +6,7 @@ import { ScoreBoard } from './components/ScoreBoard'
 import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
 import { CANVAS_WIDTH, MONSTER_TIERS, isWordSlashable } from './constants/gameConfig'
+import { UI_ICONS } from './constants/uiIcons'
 import { estimateWordTextWidth } from './utils/wordTextMetrics'
 import { useBgm } from './hooks/useBgm'
 import { useBoundaryCheck } from './hooks/useBoundaryCheck'
@@ -197,11 +198,13 @@ function App() {
     for (const w of wordList) {
       paths.add(w.image1)
       paths.add(w.image2)
-      paths.add(w.combinedImage)
     }
     // 몬스터 티어 이미지 — 게임 중 교체 시 깜빡임 방지
     for (const tier of MONSTER_TIERS) {
       paths.add(publicAsset(tier.image))
+    }
+    for (const icon of Object.values(UI_ICONS)) {
+      paths.add(icon)
     }
     const list = Array.from(paths).filter(Boolean)
     await Promise.all(
@@ -303,9 +306,14 @@ function App() {
             onClick={() => setMuted((m) => !m)}
             aria-label={muted ? '소리 켜기' : '소리 끄기'}
             aria-pressed={muted}
-            className="btn-bounce pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border-[3px] border-white/90 bg-slate-800/80 text-lg shadow-[0_3px_0_rgba(0,0,0,0.2)]"
+            className="btn-bounce pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border-[3px] border-white/90 bg-slate-800/80 shadow-[0_3px_0_rgba(0,0,0,0.2)]"
           >
-            {muted ? '🔇' : '🔊'}
+            <img
+              src={muted ? UI_ICONS.mute : UI_ICONS.sound}
+              alt=""
+              aria-hidden
+              className="h-5 w-5 object-contain"
+            />
           </button>
           {state.status !== 'idle' && !gameOver ? (
             <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
@@ -315,12 +323,24 @@ function App() {
 
       {state.status !== 'idle' && !gameOver ? (
         <div className="pointer-events-none absolute left-0 right-0 top-[52px] z-50 flex h-[48px] flex-col items-center justify-center">
-          <div className="font-display text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
-            🎯 Slice the middle of the word!
+          <div className="font-display flex items-center justify-center gap-2 text-center text-xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
+            <img
+              src={UI_ICONS.target}
+              alt=""
+              aria-hidden
+              className="h-6 w-6 object-contain"
+            />
+            Slice the middle of the word!
           </div>
           {combo >= 2 ? (
-            <div className="animate-wiggle text-sm font-bold text-yellow-300 drop-shadow-md">
-              🔥 {combo} Combo!
+            <div className="animate-wiggle flex items-center justify-center gap-1.5 text-sm font-bold text-yellow-300 drop-shadow-md">
+              <img
+                src={UI_ICONS.fire}
+                alt=""
+                aria-hidden
+                className="h-5 w-5 object-contain"
+              />
+              {combo} Combo!
             </div>
           ) : null}
         </div>
@@ -329,7 +349,15 @@ function App() {
       {state.status !== 'idle' && !gameOver ? (
         <footer className="absolute bottom-[10px] left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
           <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
-            <span className="font-display text-sm font-extrabold text-white">🗺️ Progress</span>
+            <span className="font-display flex items-center gap-1.5 text-sm font-extrabold text-white">
+              <img
+                src={UI_ICONS.map}
+                alt=""
+                aria-hidden
+                className="h-5 w-5 object-contain"
+              />
+              Progress
+            </span>
             <ProgressStars done={wordsDone} total={10} />
             <span className="font-display text-sm font-bold text-yellow-200">
               {wordsDone}/{10}
@@ -350,16 +378,17 @@ function ProgressStars({ done, total }: { done: number; total: number }) {
         const filled = i < done
         const justEarned = filled && i === done - 1
         return (
-          <span
+          <img
             key={i}
+            src={UI_ICONS.star}
+            alt=""
+            aria-hidden
             className={[
-              'text-lg',
+              'h-5 w-5 object-contain',
               filled ? 'scale-110 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]' : 'opacity-35 grayscale',
               justEarned ? 'animate-pop-star' : '',
             ].join(' ')}
-          >
-            ⭐
-          </span>
+          />
         )
       })}
     </div>

@@ -42,7 +42,7 @@ export const CANVAS_WIDTH = STAGE_WIDTH
 export const CANVAS_HEIGHT = STAGE_HEIGHT
 export const WORD_FONT_SIZE = 58
 /** 글자 사이 추가 간격(px) — measureText 기준 */
-export const WORD_LETTER_SPACING = 8
+export const WORD_LETTER_SPACING = 10
 /** 몬스터·단어 수직 중심 (상·하 UI 오버레이 고려) */
 export const WORD_Y_POSITION = 400
 

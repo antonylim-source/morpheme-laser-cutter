@@ -1,4 +1,5 @@
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { UI_ICONS } from '../../constants/uiIcons'
 
 const TOTAL_WORDS = 10
 
@@ -33,7 +34,12 @@ export function GameOverScreen({
             exit={{ y: 10, scale: 0.98, opacity: 0 }}
             transition={{ duration: reduce ? 0.2 : 0.45, ease: 'easeOut' }}
           >
-            <div className="text-5xl">🎉</div>
+            <img
+              src={UI_ICONS.party}
+              alt=""
+              aria-hidden
+              className="mx-auto h-14 w-14 object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)]"
+            />
             <div className="font-display mt-2 text-3xl font-extrabold text-white drop-shadow-[0_3px_0_rgba(0,0,0,0.2)]">
               대단해요!
             </div>
@@ -41,14 +47,18 @@ export function GameOverScreen({
               괴물 {wordsCompleted}마리 격파 완료!
             </div>
 
-            <div className="mt-4 flex items-center justify-center gap-2 text-4xl">
+            <div className="mt-4 flex items-center justify-center gap-2">
               {[0, 1, 2].map((i) => (
-                <span
+                <img
                   key={i}
-                  className={i < stars ? 'animate-wiggle' : 'opacity-30 grayscale'}
-                >
-                  ⭐
-                </span>
+                  src={UI_ICONS.star}
+                  alt=""
+                  aria-hidden
+                  className={[
+                    'h-10 w-10 object-contain',
+                    i < stars ? 'animate-wiggle' : 'opacity-30 grayscale',
+                  ].join(' ')}
+                />
               ))}
             </div>
 
@@ -62,9 +72,15 @@ export function GameOverScreen({
             <button
               type="button"
               onClick={onPlayAgain}
-              className="btn-bounce font-display mt-6 w-full rounded-2xl border-[4px] border-white bg-gradient-to-b from-cyan-300 to-sky-500 px-4 py-4 text-xl font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform hover:brightness-105"
+              className="btn-bounce font-display mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border-[4px] border-white bg-gradient-to-b from-cyan-300 to-sky-500 px-4 py-4 text-xl font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform hover:brightness-105"
             >
-              🔄 다시 도전!
+              <img
+                src={UI_ICONS.refresh}
+                alt=""
+                aria-hidden
+                className="h-6 w-6 object-contain"
+              />
+              다시 도전!
             </button>
           </motion.div>
         </motion.div>

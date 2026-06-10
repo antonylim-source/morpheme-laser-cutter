@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { UI_ICONS } from '../../constants/uiIcons'
 
 export function ScoreBoard({
   score,
@@ -26,33 +27,38 @@ export function ScoreBoard({
   return (
     <div className="flex items-center gap-2">
       <Badge
-        emoji="⭐"
+        icon={UI_ICONS.star}
         label="Score"
         value={score}
         color="from-amber-300 to-yellow-400"
         pop={scorePopRef.current}
       />
       <Badge
-        emoji="🔥"
+        icon={UI_ICONS.fire}
         label="Combo"
         value={combo}
         color="from-orange-400 to-red-400"
         highlight={combo >= 2}
       />
-      <Badge emoji="💥" label="Miss" value={misses} color="from-pink-400 to-rose-400" />
+      <Badge
+        icon={UI_ICONS.explosion}
+        label="Miss"
+        value={misses}
+        color="from-pink-400 to-rose-400"
+      />
     </div>
   )
 }
 
 function Badge({
-  emoji,
+  icon,
   label,
   value,
   color,
   highlight = false,
   pop = false,
 }: {
-  emoji: string
+  icon: string
   label: string
   value: number
   color: string
@@ -67,7 +73,12 @@ function Badge({
         highlight ? 'animate-wiggle' : '',
       ].join(' ')}
     >
-      <span className="text-lg leading-none">{emoji}</span>
+      <img
+        src={icon}
+        alt=""
+        aria-hidden
+        className="h-5 w-5 object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
+      />
       <span className="text-[10px] font-bold text-white/90 drop-shadow-sm">{label}</span>
       <span
         key={pop ? `pop-${value}` : value}

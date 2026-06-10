@@ -1,11 +1,12 @@
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { AgeMode } from '../../types/game.types'
+import { UI_ICONS } from '../../constants/uiIcons'
 import { publicAsset } from '../../utils/publicAsset'
 
-const AGE_OPTIONS: Record<AgeMode, { emoji: string; label: string; hint: string }> = {
-  young: { emoji: '🐣', label: 'Easy', hint: 'Wide slice' },
-  standard: { emoji: '⚡', label: 'Normal', hint: 'Standard' },
-  advanced: { emoji: '🔥', label: 'Hard', hint: 'Precise' },
+const AGE_OPTIONS: Record<AgeMode, { icon: string; label: string; hint: string }> = {
+  young: { icon: UI_ICONS.chick, label: 'Easy', hint: 'Wide slice' },
+  standard: { icon: UI_ICONS.lightning, label: 'Normal', hint: 'Standard' },
+  advanced: { icon: UI_ICONS.fire, label: 'Hard', hint: 'Precise' },
 }
 
 export function StartScreen({
@@ -52,16 +53,24 @@ export function StartScreen({
               Slice compound word monsters with your laser!
             </div>
 
-            <div className="bubble-panel mt-3 border-amber-200/80 bg-gradient-to-r from-amber-100 to-yellow-100 px-4 py-2.5 text-sm font-bold text-amber-900">
-              🎯 Slice the <span className="text-orange-600">middle</span> of the word — wrong cuts make
-              the monster bigger!
+            <div className="bubble-panel mt-3 flex items-center justify-center gap-2 border-amber-200/80 bg-gradient-to-r from-amber-100 to-yellow-100 px-4 py-2.5 text-sm font-bold text-amber-900">
+              <img
+                src={UI_ICONS.target}
+                alt=""
+                aria-hidden
+                className="h-5 w-5 shrink-0 object-contain"
+              />
+              <span>
+                Slice the <span className="text-orange-600">middle</span> of the word — wrong cuts make
+                the monster bigger!
+              </span>
             </div>
 
             <div className="mt-4">
               <div className="text-sm font-bold text-white/90">Pick your level</div>
               <div className="mt-2 flex flex-wrap items-stretch justify-center gap-2">
                 {(['young', 'standard', 'advanced'] as AgeMode[]).map((mode) => {
-                  const { emoji, label, hint } = AGE_OPTIONS[mode]
+                  const { icon, label, hint } = AGE_OPTIONS[mode]
                   const active = ageMode === mode
                   return (
                     <motion.button
@@ -77,8 +86,14 @@ export function StartScreen({
                           : 'border-white/60 bg-white/25 text-white hover:bg-white/40',
                       ].join(' ')}
                     >
-                      <span className="text-sm font-extrabold">
-                        {emoji} {label}
+                      <span className="flex items-center gap-1.5 text-sm font-extrabold">
+                        <img
+                          src={icon}
+                          alt=""
+                          aria-hidden
+                          className="h-5 w-5 object-contain"
+                        />
+                        {label}
                       </span>
                       <span
                         className={[
@@ -101,13 +116,19 @@ export function StartScreen({
               whileHover={loading || reduce ? {} : { scale: 1.04 }}
               whileTap={loading ? {} : { scale: 0.97 }}
               className={[
-                'btn-bounce font-display mt-5 w-full rounded-2xl border-[4px] border-white px-4 py-4 text-xl font-extrabold tracking-wide shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform',
+                'btn-bounce font-display mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-[4px] border-white px-4 py-4 text-xl font-extrabold tracking-wide shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform',
                 loading
                   ? 'cursor-not-allowed bg-slate-300 text-slate-500'
                   : 'bg-gradient-to-b from-lime-300 to-green-500 text-white hover:brightness-105 active:brightness-95',
               ].join(' ')}
             >
-              {loading ? '⏳ Loading…' : '🚀 Start!'}
+              <img
+                src={loading ? UI_ICONS.hourglass : UI_ICONS.rocket}
+                alt=""
+                aria-hidden
+                className="h-6 w-6 object-contain"
+              />
+              {loading ? 'Loading…' : 'Start!'}
             </motion.button>
           </motion.div>
         </motion.div>

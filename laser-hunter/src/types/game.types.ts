@@ -14,8 +14,6 @@ export interface CompoundWord {
   image1: string
   /** morpheme2 이미지 경로 */
   image2: string
-  /** 합성어 전체 이미지 경로 */
-  combinedImage: string
   /** morpheme1 성공 연출 */
   effect1?: MorphemeEffect
   /** morpheme2 성공 연출 */
