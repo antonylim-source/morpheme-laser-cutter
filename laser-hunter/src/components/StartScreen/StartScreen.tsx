@@ -38,7 +38,7 @@ export function StartScreen({
           transition={{ duration: reduce ? 0.2 : 0.35 }}
         >
           <motion.div
-            className="bubble-panel w-[min(520px,92%)] bg-gradient-to-b from-sky-400 to-blue-500 p-5 text-center"
+            className="bubble-panel w-[min(520px,92%)] bg-gradient-to-b from-sky-400 to-blue-500 p-6 text-center sm:p-7"
             initial={{ y: 20, scale: 0.95, opacity: 0 }}
             animate={{ y: 0, scale: 1, opacity: 1 }}
             exit={{ y: 10, scale: 0.98, opacity: 0 }}
@@ -47,28 +47,34 @@ export function StartScreen({
             <img
               src={publicAsset('images/title_log.png')}
               alt="Morpheme Laser Cutter"
-              className="mx-auto h-24 w-auto object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)]"
+              className="mx-auto h-24 w-auto object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)] sm:h-28"
             />
-            <div id="start-screen-title" className="mt-2 text-base font-semibold text-sky-100">
+            <p
+              id="start-screen-title"
+              className="mt-3 text-lg font-bold leading-snug text-white drop-shadow-sm sm:text-xl"
+            >
               Slice compound word monsters with your laser!
-            </div>
+            </p>
 
-            <div className="bubble-panel mt-3 flex items-center justify-center gap-2 border-amber-200/80 bg-gradient-to-r from-amber-100 to-yellow-100 px-4 py-2.5 text-sm font-bold text-amber-900">
+            <div className="bubble-panel mt-4 flex items-start gap-3 border-amber-200/80 bg-gradient-to-r from-amber-100 to-yellow-100 px-5 py-3 text-left text-base font-bold leading-relaxed text-amber-900">
               <img
                 src={UI_ICONS.target}
                 alt=""
                 aria-hidden
-                className="h-5 w-5 shrink-0 object-contain"
+                className="mt-0.5 h-7 w-7 shrink-0 object-contain"
               />
               <span>
-                Slice the <span className="text-orange-600">middle</span> of the word — wrong cuts make
-                the monster bigger!
+                Slice the{' '}
+                <span className="text-lg font-extrabold text-orange-600">middle</span> of the word —
+                wrong cuts make the monster bigger!
               </span>
             </div>
 
-            <div className="mt-4">
-              <div className="text-sm font-bold text-white/90">Pick your level</div>
-              <div className="mt-2 flex flex-wrap items-stretch justify-center gap-2">
+            <div className="mt-5">
+              <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-white/70">
+                Pick your level
+              </p>
+              <div className="mt-2.5 flex flex-wrap items-stretch justify-center gap-2.5">
                 {(['young', 'standard', 'advanced'] as AgeMode[]).map((mode) => {
                   const { icon, label, hint } = AGE_OPTIONS[mode]
                   const active = ageMode === mode
@@ -80,25 +86,25 @@ export function StartScreen({
                       aria-pressed={active}
                       whileTap={reduce ? {} : { scale: 0.95 }}
                       className={[
-                        'flex min-w-[96px] flex-col items-center rounded-2xl border-[3px] px-3 py-2 transition-transform',
+                        'flex min-w-[108px] flex-col items-center rounded-2xl border-[3px] px-3 py-3 transition-transform',
                         active
-                          ? 'border-white bg-yellow-300 text-amber-900 shadow-[0_4px_0_rgba(0,0,0,0.2)] scale-105'
+                          ? 'scale-105 border-white bg-yellow-300 text-amber-900 shadow-[0_4px_0_rgba(0,0,0,0.2)]'
                           : 'border-white/60 bg-white/25 text-white hover:bg-white/40',
                       ].join(' ')}
                     >
-                      <span className="flex items-center gap-1.5 text-sm font-extrabold">
+                      <span className="flex items-center gap-1.5 text-base font-extrabold">
                         <img
                           src={icon}
                           alt=""
                           aria-hidden
-                          className="h-5 w-5 object-contain"
+                          className="h-6 w-6 object-contain"
                         />
                         {label}
                       </span>
                       <span
                         className={[
-                          'mt-0.5 text-[10px] font-semibold',
-                          active ? 'text-amber-800/80' : 'text-white/75',
+                          'mt-1 text-xs font-medium',
+                          active ? 'text-amber-800/80' : 'text-white/60',
                         ].join(' ')}
                       >
                         {hint}
@@ -116,7 +122,7 @@ export function StartScreen({
               whileHover={loading || reduce ? {} : { scale: 1.04 }}
               whileTap={loading ? {} : { scale: 0.97 }}
               className={[
-                'btn-bounce font-display mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border-[4px] border-white px-4 py-4 text-xl font-extrabold tracking-wide shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform',
+                'btn-bounce font-display mt-6 flex w-full items-center justify-center gap-2.5 rounded-2xl border-[4px] border-white px-4 py-5 text-2xl font-extrabold tracking-wide shadow-[0_6px_0_rgba(0,0,0,0.25)] transition-transform',
                 loading
                   ? 'cursor-not-allowed bg-slate-300 text-slate-500'
                   : 'bg-gradient-to-b from-lime-300 to-green-500 text-white hover:brightness-105 active:brightness-95',
@@ -126,7 +132,7 @@ export function StartScreen({
                 src={loading ? UI_ICONS.hourglass : UI_ICONS.rocket}
                 alt=""
                 aria-hidden
-                className="h-6 w-6 object-contain"
+                className="h-7 w-7 object-contain"
               />
               {loading ? 'Loading…' : 'Start!'}
             </motion.button>
