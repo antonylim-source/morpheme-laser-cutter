@@ -59,6 +59,12 @@ const SUCCESS_SPLIT_ROTATE_DEG = 12
 /** 분열 반쪽이 위로 떴다가 떨어지는 포물선: 315t² − 275t (t=0.44에서 −60px, t=1에서 +40px) */
 const SUCCESS_SPLIT_ARC_A = 315
 const SUCCESS_SPLIT_ARC_B = 275
+const CUT_EDGE_BASE_THICKNESS = 12
+const CUT_EDGE_MAX_THICKNESS = 18
+/** 반쪽이 이 거리 이상 벌어지면 절단면 페이드아웃 */
+const CUT_EDGE_FADE_START_PX = 10
+const CUT_EDGE_FADE_END_PX = 58
+const CUT_SEAM_FLASH_MS = 200
 const DEBRIS_GRAVITY = 980
 const DEBRIS_GRAVITY_BURST_MS = 100
 const DEBRIS_GRAVITY_BURST_MUL = 0.35
@@ -155,7 +161,23 @@ type DebrisWaveState = {
 type SuccessJuiceSnapshot = {
   cutX: number
   yCenter: number
+  yTop: number
+  yBottom: number
   startMs: number
+}
+
+type CutEdgePalette = {
+  highlight: string
+  fill: string
+  stroke: string
+  rowColors: string[]
+}
+
+type SplitCutCache = {
+  splitStart: number
+  wobbles: number[]
+  palette: CutEdgePalette | null
+  steps: number
 }
 
 type FailJuiceSnapshot = {
@@ -239,6 +261,7 @@ export function GameCanvas({
   const hitStopUntilRef = useRef(0)
   const failFrozenAtRef = useRef(0)
   const successJuiceRef = useRef<SuccessJuiceSnapshot | null>(null)
+  const splitCutCacheRef = useRef<SplitCutCache | null>(null)
   const failJuiceRef = useRef<FailJuiceSnapshot | null>(null)
   const missDebrisRef = useRef<DebrisFragment[]>([])
   const prevWordVisibleRef = useRef(false)
@@ -288,6 +311,7 @@ export function GameCanvas({
     successJuiceRef.current = null
     failJuiceRef.current = null
     missDebrisRef.current = []
+    splitCutCacheRef.current = null
     layoutSnapshotRef.current = computeMonsterLayout(word, 0, failCount)
   }, [word.id])
 
@@ -353,9 +377,12 @@ export function GameCanvas({
       const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
       const countMul = 1 + Math.min(combo + 1, 4) * 0.05
       hitStopUntilRef.current = reduceMotion ? now : now + HIT_STOP_MS
+      splitCutCacheRef.current = null
       successJuiceRef.current = {
         cutX: frozen.boundaryPixelX,
         yCenter: body.yCenter,
+        yTop: body.y - 8,
+        yBottom: body.y + body.h + 8,
         startMs: now,
       }
       debrisWaveStateRef.current = {
@@ -396,6 +423,7 @@ export function GameCanvas({
       failFrozenAtRef.current = 0
       successJuiceRef.current = null
       failJuiceRef.current = null
+      splitCutCacheRef.current = null
     }
     if (gameStatus !== 'fail') return
 
@@ -812,6 +840,21 @@ export function GameCanvas({
         const leftX = x - offset
         const rightX = cutX + offset
 
+        const cutCache = getOrCreateSplitCutCache(
+          splitCutCacheRef,
+          successSplitStartRef.current,
+          cutX,
+          h,
+          monsterImg,
+          cutSrc,
+        )
+        const edgeFade = computeCutEdgeFade(offset)
+        const edgeAlpha = depthAlpha * edgeFade
+        const edgeThickness = Math.min(
+          CUT_EDGE_MAX_THICKNESS,
+          CUT_EDGE_BASE_THICKNESS + Math.min(offset, 28) * 0.18,
+        )
+
         ctx.save()
         ctx.globalAlpha = depthAlpha
         ctx.imageSmoothingEnabled = true
@@ -820,6 +863,19 @@ export function GameCanvas({
         ctx.rotate(-rotRad)
         ctx.translate(-cutX, -yCenter)
         ctx.drawImage(monsterImg, 0, 0, leftSrcW, nh, leftX, y, leftDestW, h)
+        if (edgeAlpha > 0.02) {
+          drawCutEdgeStrip(
+            ctx,
+            cutX - offset,
+            y,
+            h,
+            'left',
+            edgeThickness,
+            edgeAlpha,
+            cutCache.wobbles,
+            cutCache.palette,
+          )
+        }
         ctx.restore()
 
         ctx.save()
@@ -830,14 +886,72 @@ export function GameCanvas({
         ctx.rotate(rotRad)
         ctx.translate(-cutX, -yCenter)
         ctx.drawImage(monsterImg, cutSrc, 0, rightSrcW, nh, rightX, y, rightDestW, h)
+        if (edgeAlpha > 0.02) {
+          drawCutEdgeStrip(
+            ctx,
+            cutX + offset,
+            y,
+            h,
+            'right',
+            edgeThickness,
+            edgeAlpha,
+            cutCache.wobbles,
+            cutCache.palette,
+          )
+        }
         ctx.restore()
       } else {
+        const cutCache = getOrCreateSplitCutCache(
+          splitCutCacheRef,
+          successSplitStartRef.current,
+          cutX,
+          h,
+          null,
+          0,
+        )
+        const edgeFade = computeCutEdgeFade(offset)
+        const edgeAlpha = depthAlpha * edgeFade
+        const edgeThickness = Math.min(
+          CUT_EDGE_MAX_THICKNESS,
+          CUT_EDGE_BASE_THICKNESS + Math.min(offset, 28) * 0.18,
+        )
+        const leftW = w * cutLocal
+        const rightW = w * (1 - cutLocal)
         ctx.save()
-        roundRect(ctx, x - offset, y + arcY, w * cutLocal, h, 22 * layout.totalScale)
+        roundRect(ctx, x - offset, y + arcY, leftW, h, 22 * layout.totalScale)
         ctx.fillStyle = 'rgba(148, 163, 184, 0.2)'
         ctx.fill()
-        roundRect(ctx, cutX + offset, y + arcY, w * (1 - cutLocal), h, 22 * layout.totalScale)
+        if (edgeAlpha > 0.02) {
+          drawCutEdgeStrip(
+            ctx,
+            cutX - offset,
+            y + arcY,
+            h,
+            'left',
+            edgeThickness,
+            edgeAlpha,
+            cutCache.wobbles,
+            cutCache.palette,
+          )
+        }
+        ctx.restore()
+        ctx.save()
+        roundRect(ctx, cutX + offset, y + arcY, rightW, h, 22 * layout.totalScale)
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.2)'
         ctx.fill()
+        if (edgeAlpha > 0.02) {
+          drawCutEdgeStrip(
+            ctx,
+            cutX + offset,
+            y + arcY,
+            h,
+            'right',
+            edgeThickness,
+            edgeAlpha,
+            cutCache.wobbles,
+            cutCache.palette,
+          )
+        }
         ctx.restore()
       }
 
@@ -1629,6 +1743,26 @@ function drawSuccessJuiceEffects(
   const age = now - juice.startMs
   if (age < 0) return
 
+  if (!reduceMotion && age < CUT_SEAM_FLASH_MS) {
+    const st = age / CUT_SEAM_FLASH_MS
+    const seamAlpha = (1 - st * st) * 0.9
+    const seamW = 2 + (1 - st) * 3
+    ctx.save()
+    ctx.strokeStyle = `rgba(255, 255, 255, ${seamAlpha.toFixed(3)})`
+    ctx.lineWidth = seamW
+    ctx.shadowColor = '#67e8f9'
+    ctx.shadowBlur = 16 * seamAlpha
+    ctx.beginPath()
+    ctx.moveTo(juice.cutX, juice.yTop)
+    ctx.lineTo(juice.cutX, juice.yBottom)
+    ctx.stroke()
+    ctx.strokeStyle = `rgba(103, 232, 249, ${(seamAlpha * 0.55).toFixed(3)})`
+    ctx.lineWidth = Math.max(1, seamW * 2.2)
+    ctx.shadowBlur = 0
+    ctx.stroke()
+    ctx.restore()
+  }
+
   if (!reduceMotion && age < SUCCESS_SHOCKWAVE_MS) {
     const t = age / SUCCESS_SHOCKWAVE_MS
     for (let ring = 0; ring < 2; ring++) {
@@ -1665,6 +1799,265 @@ function drawSuccessJuiceEffects(
 
 function debrisRand(seed: number): number {
   return ((seed * 1103515245 + 12345) >>> 0) / 4294967296
+}
+
+let cutSampleCanvas: HTMLCanvasElement | null = null
+let cutSampleCtx: CanvasRenderingContext2D | null = null
+
+function getCutSampleContext(): CanvasRenderingContext2D | null {
+  if (!cutSampleCanvas) {
+    cutSampleCanvas = document.createElement('canvas')
+    cutSampleCtx = cutSampleCanvas.getContext('2d', { willReadFrequently: true })
+  }
+  return cutSampleCtx
+}
+
+function clampByte(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v)))
+}
+
+function toneRgb(r: number, g: number, b: number, mul: number, desat = 1): string {
+  const gray = (r + g + b) / 3
+  const nr = clampByte(gray + (r - gray) * desat * mul)
+  const ng = clampByte(gray + (g - gray) * desat * mul)
+  const nb = clampByte(gray + (b - gray) * desat * mul)
+  return `rgb(${nr},${ng},${nb})`
+}
+
+function computeCutEdgeFade(offset: number): number {
+  if (offset <= CUT_EDGE_FADE_START_PX) return 1
+  if (offset >= CUT_EDGE_FADE_END_PX) return 0
+  const t = (offset - CUT_EDGE_FADE_START_PX) / (CUT_EDGE_FADE_END_PX - CUT_EDGE_FADE_START_PX)
+  return 1 - t * t
+}
+
+function buildCutEdgeWobbles(seed: number, steps: number, jag: number): number[] {
+  const wobbles: number[] = []
+  for (let i = 0; i <= steps; i++) {
+    wobbles.push(
+      i === 0 || i === steps ? 0 : (debrisRand(seed + i * 11 + 3) - 0.5) * jag * 2,
+    )
+  }
+  return wobbles
+}
+
+function sampleMonsterCutPalette(
+  img: HTMLImageElement,
+  cutSrc: number,
+  steps: number,
+): CutEdgePalette | null {
+  const ctx = getCutSampleContext()
+  if (!ctx || !cutSampleCanvas) return null
+
+  const nw = img.naturalWidth
+  const nh = img.naturalHeight
+  const stripW = 3
+  const sx = Math.max(0, Math.min(nw - stripW, Math.floor(cutSrc) - 1))
+  cutSampleCanvas.width = stripW
+  cutSampleCanvas.height = nh
+  ctx.clearRect(0, 0, stripW, nh)
+  ctx.drawImage(img, sx, 0, stripW, nh, 0, 0, stripW, nh)
+  const data = ctx.getImageData(0, 0, stripW, nh).data
+
+  const rowColors: string[] = []
+  let sumR = 0
+  let sumG = 0
+  let sumB = 0
+  let count = 0
+
+  for (let i = 0; i <= steps; i++) {
+    const row = Math.min(nh - 1, Math.floor((nh * i) / steps))
+    let rSum = 0
+    let gSum = 0
+    let bSum = 0
+    let aCount = 0
+    for (let px = 0; px < stripW; px++) {
+      const idx = (row * stripW + px) * 4
+      if ((data[idx + 3] ?? 0) < 24) continue
+      rSum += data[idx] ?? 0
+      gSum += data[idx + 1] ?? 0
+      bSum += data[idx + 2] ?? 0
+      aCount++
+    }
+    if (aCount > 0) {
+      const r = Math.round(rSum / aCount)
+      const g = Math.round(gSum / aCount)
+      const b = Math.round(bSum / aCount)
+      rowColors.push(toneRgb(r, g, b, 0.9, 0.88))
+      sumR += r
+      sumG += g
+      sumB += b
+      count++
+    } else {
+      const fallback = STONE_PALETTE[i % STONE_PALETTE.length]!
+      rowColors.push(fallback.fill)
+    }
+  }
+
+  if (count === 0) return null
+  const avgR = sumR / count
+  const avgG = sumG / count
+  const avgB = sumB / count
+  return {
+    highlight: toneRgb(avgR, avgG, avgB, 1.16, 0.92),
+    fill: toneRgb(avgR, avgG, avgB, 0.86, 0.84),
+    stroke: toneRgb(avgR, avgG, avgB, 0.62, 0.72),
+    rowColors,
+  }
+}
+
+function getOrCreateSplitCutCache(
+  cacheRef: { current: SplitCutCache | null },
+  splitStart: number,
+  seed: number,
+  height: number,
+  monsterImg: HTMLImageElement | null,
+  cutSrc: number,
+): SplitCutCache {
+  const existing = cacheRef.current
+  if (existing && existing.splitStart === splitStart) return existing
+
+  const steps = Math.max(10, Math.min(22, Math.floor(height / 24)))
+  const jag = Math.min(4.5, CUT_EDGE_BASE_THICKNESS * 0.32)
+  const palette =
+    monsterImg?.complete && monsterImg.naturalWidth > 0
+      ? sampleMonsterCutPalette(monsterImg, cutSrc, steps)
+      : null
+  const cache: SplitCutCache = {
+    splitStart,
+    wobbles: buildCutEdgeWobbles(seed, steps, jag),
+    palette,
+    steps,
+  }
+  cacheRef.current = cache
+  return cache
+}
+
+/** 성공 분열 시 몬스터 절단면 — 몬스터 색 샘플링 + 공유 프로필 2.5D 스트립 */
+function drawCutEdgeStrip(
+  ctx: CanvasRenderingContext2D,
+  edgeX: number,
+  topY: number,
+  height: number,
+  side: 'left' | 'right',
+  thickness: number,
+  alpha: number,
+  wobbles: number[],
+  palette: CutEdgePalette | null,
+) {
+  if (thickness < 2 || alpha <= 0.02 || height < 8 || wobbles.length < 2) return
+
+  const stone = STONE_PALETTE[0]!
+  const colors = palette ?? {
+    highlight: stone.highlight,
+    fill: stone.fill,
+    stroke: stone.stroke,
+    rowColors: [] as string[],
+  }
+  const outward = side === 'left' ? 1 : -1
+  const stepCount = wobbles.length - 1
+  const pts = wobbles.map((wobble, i) => ({
+    x: edgeX + wobble,
+    y: topY + (height * i) / stepCount,
+  }))
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.beginPath()
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    if (i === 0) ctx.moveTo(p.x, p.y)
+    else ctx.lineTo(p.x, p.y)
+  }
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i]!
+    ctx.lineTo(p.x + outward * thickness, p.y)
+  }
+  ctx.closePath()
+
+  if (colors.rowColors.length >= 2) {
+    const vertGrad = ctx.createLinearGradient(0, topY, 0, topY + height)
+    const n = colors.rowColors.length
+    for (let i = 0; i < n; i++) {
+      vertGrad.addColorStop(i / (n - 1), colors.rowColors[i]!)
+    }
+    ctx.fillStyle = vertGrad
+  } else {
+    const g0 = edgeX
+    const g1 = edgeX + outward * thickness
+    const fillGrad = ctx.createLinearGradient(g0, 0, g1, 0)
+    if (side === 'left') {
+      fillGrad.addColorStop(0, colors.highlight)
+      fillGrad.addColorStop(0.4, colors.fill)
+      fillGrad.addColorStop(1, colors.stroke)
+    } else {
+      fillGrad.addColorStop(0, colors.stroke)
+      fillGrad.addColorStop(0.6, colors.fill)
+      fillGrad.addColorStop(1, colors.highlight)
+    }
+    ctx.fillStyle = fillGrad
+  }
+  ctx.fill()
+
+  ctx.clip()
+  const g0 = edgeX - thickness
+  const g1 = edgeX + outward * thickness * 2
+  const depthGrad = ctx.createLinearGradient(g0, 0, g1, 0)
+  if (side === 'left') {
+    depthGrad.addColorStop(0, 'rgba(255,255,255,0.2)')
+    depthGrad.addColorStop(0.45, 'rgba(0,0,0,0)')
+    depthGrad.addColorStop(1, 'rgba(0,0,0,0.3)')
+  } else {
+    depthGrad.addColorStop(0, 'rgba(0,0,0,0.3)')
+    depthGrad.addColorStop(0.55, 'rgba(0,0,0,0)')
+    depthGrad.addColorStop(1, 'rgba(255,255,255,0.2)')
+  }
+  ctx.globalCompositeOperation = 'multiply'
+  ctx.fillStyle = depthGrad
+  ctx.fillRect(g0, topY, g1 - g0, height)
+  ctx.globalCompositeOperation = 'destination-in'
+  const feather = ctx.createLinearGradient(0, topY, 0, topY + height)
+  feather.addColorStop(0, 'rgba(0,0,0,0)')
+  feather.addColorStop(0.07, 'rgba(0,0,0,1)')
+  feather.addColorStop(0.93, 'rgba(0,0,0,1)')
+  feather.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = feather
+  ctx.fillRect(g0 - 2, topY, g1 - g0 + 4, height)
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.restore()
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.strokeStyle = colors.stroke
+  ctx.lineWidth = 1.1
+  ctx.beginPath()
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    if (i === 0) ctx.moveTo(p.x, p.y)
+    else ctx.lineTo(p.x, p.y)
+  }
+  ctx.stroke()
+
+  ctx.beginPath()
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    if (i === 0) ctx.moveTo(p.x + outward * thickness * 0.92, p.y)
+    else ctx.lineTo(p.x + outward * thickness * 0.92, p.y)
+  }
+  ctx.strokeStyle = `rgba(255, 255, 255, ${(0.38 * alpha).toFixed(3)})`
+  ctx.lineWidth = 1.4
+  ctx.stroke()
+
+  ctx.beginPath()
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    if (i === 0) ctx.moveTo(p.x + outward * thickness * 0.1, p.y)
+    else ctx.lineTo(p.x + outward * thickness * 0.1, p.y)
+  }
+  ctx.strokeStyle = `rgba(20, 14, 10, ${(0.32 * alpha).toFixed(3)})`
+  ctx.lineWidth = 1.8
+  ctx.stroke()
+  ctx.restore()
 }
 
 function spawnStarConfetti(
