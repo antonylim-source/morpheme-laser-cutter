@@ -8,6 +8,8 @@ import {
   AGE_TOLERANCE,
   gameConfig,
   getMonsterImagePath,
+  getMonsterTier,
+  MONSTER_TIERS,
   getWordRevealAlpha,
   isWordSlashable,
 } from '../../constants/gameConfig'
@@ -28,6 +30,14 @@ import {
   measureWordText,
   type WordTextMetrics,
 } from '../../utils/wordTextMetrics'
+import {
+  getMonsterSequenceAspect,
+  getMonsterSequenceConfig,
+  getMonsterSequenceFrameIndex,
+  getMonsterSequenceFrameRect,
+  getMonsterSequenceOffsetX,
+  getMonsterSequenceRenderScale,
+} from '../../constants/monsterSequence'
 
 type Props = {
   word: CompoundWord
@@ -244,6 +254,8 @@ export function GameCanvas({
   const trailRef = useRef<TrailPoint[]>([])
   const deflectRef = useRef<DeflectState | null>(null)
   const monsterImgRef = useRef<HTMLImageElement | null>(null)
+  const monsterSequenceSheetsRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const monsterAnimMsRef = useRef(0)
   const prevStatusRef = useRef<GameState['status']>(gameStatus)
   const lastLayoutEmitRef = useRef(0)
   const canvasRectRef = useRef<DOMRect | null>(null)
@@ -312,6 +324,7 @@ export function GameCanvas({
     failJuiceRef.current = null
     missDebrisRef.current = []
     splitCutCacheRef.current = null
+    monsterAnimMsRef.current = 0
     layoutSnapshotRef.current = computeMonsterLayout(word, 0, failCount)
   }, [word.id])
 
@@ -360,6 +373,33 @@ export function GameCanvas({
   }, [wordsDone])
 
   useEffect(() => {
+    // 티어별 시퀀스 시트 — 게임 시작 전에 모두 로드
+    let cancelled = false
+    const sheets = monsterSequenceSheetsRef.current
+
+    for (const tier of MONSTER_TIERS) {
+      if (!tier.sequenceSheet) continue
+      const path = tier.sequenceSheet
+      if (sheets.has(path)) continue
+
+      const sheet = new Image()
+      const assign = () => {
+        if (!cancelled) sheets.set(path, sheet)
+      }
+      sheet.onload = assign
+      sheet.onerror = () => {
+        if (!cancelled) sheets.delete(path)
+      }
+      sheet.src = publicAsset(path)
+      if (sheet.complete && sheet.naturalWidth > 0) assign()
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     const prev = prevStatusRef.current
     prevStatusRef.current = gameStatus
     if (prev === gameStatus) return
@@ -373,6 +413,14 @@ export function GameCanvas({
         frozen,
         monsterImgRef.current,
         wordZone.wordY,
+        getMonsterDisplayAspect(
+          monsterImgRef.current,
+          monsterSequenceSheetsRef.current,
+          wordsDone,
+        ),
+        getMonsterRenderScale(monsterSequenceSheetsRef.current, wordsDone),
+        monsterSequenceSheetsRef.current,
+        wordsDone,
       )
       const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
       const countMul = 1 + Math.min(combo + 1, 4) * 0.05
@@ -439,6 +487,14 @@ export function GameCanvas({
       layout,
       monsterImgRef.current,
       wordZone.wordY,
+      getMonsterDisplayAspect(
+        monsterImgRef.current,
+        monsterSequenceSheetsRef.current,
+        wordsDone,
+      ),
+      getMonsterRenderScale(monsterSequenceSheetsRef.current, wordsDone),
+      monsterSequenceSheetsRef.current,
+      wordsDone,
     )
     const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
 
@@ -625,23 +681,30 @@ export function GameCanvas({
       }
 
       const totalScale = layout.totalScale * growMul
-      const monsterImg = monsterImgRef.current
-      const aspect =
-        monsterImg?.complete && monsterImg.naturalWidth > 0
-          ? monsterImg.naturalHeight / monsterImg.naturalWidth
-          : 0.62
+      const aspect = getMonsterDisplayAspect(
+        monsterImgRef.current,
+        monsterSequenceSheetsRef.current,
+        wordsDone,
+      )
+
+      const renderScale = getMonsterRenderScale(monsterSequenceSheetsRef.current, wordsDone)
 
       const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
       // fail 성장(×1.5^n)·grow punch가 겹쳐도 몬스터가 스테이지 밖으로 잘리지 않도록 폭 상한
-      const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
+      const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale * renderScale)
       const h = w * aspect
+      const drawOffsetX = getMonsterDrawOffsetX(
+        monsterSequenceSheetsRef.current,
+        wordsDone,
+        w,
+      )
       const bob = reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * bobPhase
       const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob
-      const x = xCenter - w / 2
+      const x = xCenter - w / 2 + drawOffsetX
       const y = yCenter - h / 2
       const depthAlpha = 0.5 + 0.5 * layout.approachProgress
 
-      return { x, y, w, h, xCenter, yCenter, depthAlpha, totalScale }
+      return { x, y, w, h, xCenter: xCenter + drawOffsetX, yCenter, depthAlpha, totalScale }
     }
 
     const drawMonsterBody = (layout: MonsterLayoutSnapshot, xCenter = layout.monsterX) => {
@@ -650,6 +713,9 @@ export function GameCanvas({
         xCenter,
       )
       const monsterImg = monsterImgRef.current
+      const sequencePath = getMonsterTier(wordsDone).sequenceSheet
+      const sequenceSheet = getTierSequenceSheet(monsterSequenceSheetsRef.current, wordsDone)
+      const useSequence = !!sequencePath && !!sequenceSheet
 
       ctx.save()
 
@@ -684,7 +750,18 @@ export function GameCanvas({
         ctx.restore()
       }
 
-      if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
+      if (useSequence && sequencePath) {
+        const frameIndex = reduceMotion
+          ? 0
+          : getMonsterSequenceFrameIndex(monsterAnimMsRef.current, sequencePath)
+        const frame = getMonsterSequenceFrameRect(frameIndex, sequencePath)
+        ctx.save()
+        ctx.globalAlpha = depthAlpha
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(sequenceSheet, frame.x, frame.y, frame.w, frame.h, x, y, w, h)
+        ctx.restore()
+      } else if (monsterImg?.complete && monsterImg.naturalWidth > 0) {
         ctx.save()
         ctx.globalAlpha = depthAlpha
         ctx.imageSmoothingEnabled = true
@@ -1173,6 +1250,17 @@ export function GameCanvas({
         }
       }
 
+      const animatesMonsterSequence =
+        !!getMonsterTier(wordsDone).sequenceSheet &&
+        !!getTierSequenceSheet(monsterSequenceSheetsRef.current, wordsDone) &&
+        !reduceMotion &&
+        !loading &&
+        gameStatus !== 'success' &&
+        gameStatus !== 'idle'
+      if (animatesMonsterSequence) {
+        monsterAnimMsRef.current += deltaMs
+      }
+
       if (textMetricsWordIdRef.current !== word.id || !textMetricsRef.current) {
         textMetricsRef.current = measureWordText(ctx, word.full)
         textMetricsWordIdRef.current = word.id
@@ -1467,24 +1555,95 @@ function clampInt(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
+function isMonsterSequenceReady(
+  sheet: HTMLImageElement | null,
+): sheet is HTMLImageElement {
+  return !!(sheet?.complete && sheet.naturalWidth > 0)
+}
+
+function getTierSequenceSheet(
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+): HTMLImageElement | null {
+  const path = getMonsterTier(wordsDone).sequenceSheet
+  if (!path) return null
+  const sheet = sheets.get(path) ?? null
+  return isMonsterSequenceReady(sheet) ? sheet : null
+}
+
+function getMonsterRenderScale(
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+): number {
+  const sequencePath = getMonsterTier(wordsDone).sequenceSheet
+  if (!sequencePath || !getTierSequenceSheet(sheets, wordsDone)) return 1
+  return getMonsterSequenceRenderScale(sequencePath)
+}
+
+function getMonsterDrawOffsetX(
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+  destW: number,
+): number {
+  const sequencePath = getMonsterTier(wordsDone).sequenceSheet
+  if (!sequencePath || !getTierSequenceSheet(sheets, wordsDone)) return 0
+  const sourceOffsetX = getMonsterSequenceOffsetX(sequencePath)
+  if (sourceOffsetX === 0) return 0
+  const frameW = getMonsterSequenceConfig(sequencePath)?.frameW
+  if (!frameW) return 0
+  return sourceOffsetX * (destW / frameW)
+}
+
+function getMonsterDisplayAspect(
+  staticImg: HTMLImageElement | null,
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+): number {
+  const sequencePath = getMonsterTier(wordsDone).sequenceSheet
+  const sequenceSheet = getTierSequenceSheet(sheets, wordsDone)
+  if (sequencePath && sequenceSheet) {
+    const aspect = getMonsterSequenceAspect(sequencePath)
+    if (aspect != null) return aspect
+  }
+  if (staticImg?.complete && staticImg.naturalWidth > 0) {
+    return staticImg.naturalHeight / staticImg.naturalWidth
+  }
+  return 0.62
+}
+
 function computeMonsterBodyRectStatic(
   layout: MonsterLayoutSnapshot,
   monsterImg: HTMLImageElement | null,
   wordY: number,
+  aspectOverride?: number,
+  renderScale = 1,
+  sheets?: Map<string, HTMLImageElement>,
+  wordsDone = 0,
 ): MonsterBodyRect {
   const totalScale = layout.totalScale
   const aspect =
-    monsterImg?.complete && monsterImg.naturalWidth > 0
+    aspectOverride ??
+    (monsterImg?.complete && monsterImg.naturalWidth > 0
       ? monsterImg.naturalHeight / monsterImg.naturalWidth
-      : 0.62
+      : 0.62)
   const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
-  const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale)
+  const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale * renderScale)
   const h = w * aspect
+  const drawOffsetX = sheets ? getMonsterDrawOffsetX(sheets, wordsDone, w) : 0
   const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordY)
-  const x = layout.monsterX - w / 2
+  const x = layout.monsterX - w / 2 + drawOffsetX
   const y = yCenter - h / 2
   const depthAlpha = 0.5 + 0.5 * layout.approachProgress
-  return { x, y, w, h, xCenter: layout.monsterX, yCenter, depthAlpha, totalScale }
+  return {
+    x,
+    y,
+    w,
+    h,
+    xCenter: layout.monsterX + drawOffsetX,
+    yCenter,
+    depthAlpha,
+    totalScale,
+  }
 }
 
 function buildDeflectSegments(

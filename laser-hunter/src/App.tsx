@@ -199,9 +199,12 @@ function App() {
       paths.add(w.image1)
       paths.add(w.image2)
     }
-    // 몬스터 티어 이미지 — 게임 중 교체 시 깜빡임 방지
+    // 몬스터 티어 이미지 — 게임 중 교체 시 깜빡임·시퀀스 지연 방지
     for (const tier of MONSTER_TIERS) {
       paths.add(publicAsset(tier.image))
+      if (tier.sequenceSheet) {
+        paths.add(publicAsset(tier.sequenceSheet))
+      }
     }
     for (const icon of Object.values(UI_ICONS)) {
       paths.add(icon)

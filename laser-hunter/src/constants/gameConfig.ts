@@ -20,20 +20,35 @@ export const MONSTER_APPROACH_MIN_SCALE = 0.25
 /** 완료 단어(wordsDone)당 몬스터 접근 속도 증가율 — 9단어째 약 1.54배(접근 약 4.2초 → 2.7초) */
 export const MONSTER_SPEED_RAMP_PER_WORD = 0.06
 
+export type MonsterTier = {
+  minWords: number
+  image: string
+  /** 접근 중 재생할 스프라이트 시트 (슬래시 분할은 image 정적 PNG 사용) */
+  sequenceSheet?: string
+}
+
 /** wordsDone 구간별 몬스터 이미지 — 위협도 상승 티어, 마지막 단어는 보스 */
-export const MONSTER_TIERS = [
-  { minWords: 0, image: 'images/monster_4.png' }, // 거미 — 도입 (1~3번째 단어)
-  { minWords: 3, image: 'images/monster_1.png' }, // 골렘 — 중반 (4~6번째)
-  { minWords: 6, image: 'images/monster_3.png' }, // 그리핀 — 후반 (7~9번째)
-  { minWords: 9, image: 'images/monster_2.png' }, // 돌 야수 — 최종 보스 (10번째)
-] as const
+export const MONSTER_TIERS: readonly MonsterTier[] = [
+  {
+    minWords: 0,
+    image: 'images/monster_4.png',
+    sequenceSheet: 'images/monster_4-sequence.png',
+  }, // 거미 — 도입 (1~3번째 단어)
+  { minWords: 3, image: 'images/monster_1.png', sequenceSheet: 'images/monster_1-sequence.png' }, // 골렘 — 중반 (4~6번째)
+  { minWords: 6, image: 'images/monster_3.png', sequenceSheet: 'images/monster_3-sequence.png' }, // 그리핀 — 후반 (7~9번째)
+  { minWords: 9, image: 'images/monster_2.png', sequenceSheet: 'images/monster_2-sequence.png' }, // 돌 야수 — 최종 보스 (10번째)
+]
+
+export function getMonsterTier(wordsDone: number): MonsterTier {
+  let tier: MonsterTier = MONSTER_TIERS[0]
+  for (const t of MONSTER_TIERS) {
+    if (wordsDone >= t.minWords) tier = t
+  }
+  return tier
+}
 
 export function getMonsterImagePath(wordsDone: number): string {
-  let image: string = MONSTER_TIERS[0].image
-  for (const tier of MONSTER_TIERS) {
-    if (wordsDone >= tier.minWords) image = tier.image
-  }
-  return image
+  return getMonsterTier(wordsDone).image
 }
 
 export const HINT_THRESHOLDS = [1, 2, 3] as const
