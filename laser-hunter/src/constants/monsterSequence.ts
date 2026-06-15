@@ -85,13 +85,17 @@ export function getMonsterSequenceFrameRect(
   return { x: col * frameW, y: row * frameH, w: frameW, h: frameH }
 }
 
+/** 0 → … → last → … → 0 ping-pong — 루프 점프 없이 자연스럽게 반복 */
 export function getMonsterSequenceFrameIndex(elapsedMs: number, sheetPath: string): number {
   const cfg = getMonsterSequenceConfig(sheetPath)
   if (!cfg) return 0
 
   const { frameCount, frameDurationMs } = cfg
-  const loopMs = frameCount * frameDurationMs
-  if (loopMs <= 0) return 0
+  if (frameCount <= 1 || frameDurationMs <= 0) return 0
+
+  const cycleFrames = 2 * frameCount - 2
+  const loopMs = cycleFrames * frameDurationMs
   const t = ((elapsedMs % loopMs) + loopMs) % loopMs
-  return Math.min(frameCount - 1, Math.floor(t / frameDurationMs))
+  const pos = Math.floor(t / frameDurationMs) % cycleFrames
+  return pos < frameCount ? pos : cycleFrames - pos
 }
