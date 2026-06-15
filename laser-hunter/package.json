@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "process:morpheme-png": "node scripts/process-morpheme-png.mjs"
+    "process:morpheme-png": "node scripts/process-morpheme-png.mjs",
+    "optimize:images": "node scripts/optimize-images.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

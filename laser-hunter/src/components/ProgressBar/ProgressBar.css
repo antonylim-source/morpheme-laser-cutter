@@ -1,0 +1,67 @@
+/* progress_area.png — 프레임만 사용, 오버레이는 최소 CSS */
+.progress-bar {
+  --pb-width: 900px;
+  width: var(--pb-width);
+  aspect-ratio: 1234 / 202;
+  position: relative;
+  filter:
+    drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 -4px 18px rgba(255, 90, 30, 0.28));
+}
+
+.progress-bar__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.progress-bar__stars {
+  position: absolute;
+  left: calc(6% + 129px);
+  top: 33.3%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap:1px;
+}
+
+.progress-bar__star-slot {
+  display: flex;
+  height: 3.0rem;
+  width: 2.4rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-bar__star-img.progress-bar__star-pop {
+  animation: pop-star-progress 0.55s cubic-bezier(0.22, 1.2, 0.36, 1) forwards;
+}
+
+@keyframes pop-star-progress {
+  0% {
+    transform: scale(0.3) rotate(-20deg);
+    opacity: 0.4;
+  }
+  55% {
+    transform: scale(1.2) rotate(8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.progress-bar__counter {
+  position: absolute;
+  left: 68.5%;
+  top: 42%;
+  width: 10%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

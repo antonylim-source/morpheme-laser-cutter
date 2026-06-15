@@ -2,6 +2,7 @@ import { GameCanvas } from './components/GameCanvas'
 import { FeedbackPopup, type FeedbackKind } from './components/FeedbackPopup'
 import { GameOverScreen } from './components/GameOverScreen'
 import { HintOverlay } from './components/HintOverlay'
+import { ProgressBar } from './components/ProgressBar'
 import { ScoreBoard } from './components/ScoreBoard'
 import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
@@ -350,22 +351,8 @@ function App() {
       ) : null}
 
       {state.status !== 'idle' && !gameOver ? (
-        <footer className="absolute bottom-[10px] left-0 right-0 z-50 flex h-[56px] items-center justify-center px-4">
-          <div className="bubble-panel flex items-center gap-3 bg-gradient-to-r from-sky-500/90 to-cyan-500/90 px-4 py-2">
-            <span className="font-display flex items-center gap-1.5 text-sm font-extrabold text-white">
-              <img
-                src={UI_ICONS.map}
-                alt=""
-                aria-hidden
-                className="h-5 w-5 object-contain"
-              />
-              Progress
-            </span>
-            <ProgressStars done={wordsDone} total={10} />
-            <span className="font-display text-sm font-bold text-yellow-200">
-              {wordsDone}/{10}
-            </span>
-          </div>
+        <footer className="pointer-events-none absolute bottom-[6px] left-0 right-0 z-50 flex translate-y-[40px] items-end justify-center px-3">
+          <ProgressBar done={wordsDone} total={10} />
         </footer>
       ) : null}
     </div>
@@ -373,27 +360,3 @@ function App() {
 }
 
 export default App
-
-function ProgressStars({ done, total }: { done: number; total: number }) {
-  return (
-    <div className="flex items-center gap-1">
-      {Array.from({ length: total }, (_, i) => {
-        const filled = i < done
-        const justEarned = filled && i === done - 1
-        return (
-          <img
-            key={i}
-            src={UI_ICONS.star}
-            alt=""
-            aria-hidden
-            className={[
-              'h-5 w-5 object-contain',
-              filled ? 'scale-110 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]' : 'opacity-35 grayscale',
-              justEarned ? 'animate-pop-star' : '',
-            ].join(' ')}
-          />
-        )
-      })}
-    </div>
-  )
-}

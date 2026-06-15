@@ -258,7 +258,6 @@ export function GameCanvas({
   const monsterAnimMsRef = useRef(0)
   const prevStatusRef = useRef<GameState['status']>(gameStatus)
   const lastLayoutEmitRef = useRef(0)
-  const canvasRectRef = useRef<DOMRect | null>(null)
   const textMetricsRef = useRef<WordTextMetrics | null>(null)
   const textMetricsWordIdRef = useRef('')
   const growPunchStartRef = useRef(0)
@@ -334,27 +333,6 @@ export function GameCanvas({
     }
     prevFailCountRef.current = failCount
   }, [failCount])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) return
-
-    const updateRect = () => {
-      canvasRectRef.current = canvas.getBoundingClientRect()
-    }
-    updateRect()
-    const ro = new ResizeObserver(updateRect)
-    ro.observe(container)
-    window.addEventListener('resize', updateRect)
-    window.addEventListener('scroll', updateRect, { passive: true })
-
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', updateRect)
-      window.removeEventListener('scroll', updateRect)
-    }
-  }, [])
 
   useEffect(() => {
     // 티어 교체 시 깜빡임이 없도록, 새 이미지가 로드될 때까지 기존 이미지를 유지
@@ -530,7 +508,8 @@ export function GameCanvas({
     if (!canvas) return
 
     const toCanvasXY = (clientX: number, clientY: number) => {
-      const r = canvasRectRef.current ?? canvas.getBoundingClientRect()
+      // StageScaler CSS scale 변경 시에도 정확히 맞추기 위해 이벤트마다 fresh rect 사용
+      const r = canvas.getBoundingClientRect()
       const sx = Math.max(1e-6, r.width / CANVAS_WIDTH)
       const sy = Math.max(1e-6, r.height / CANVAS_HEIGHT)
       const x = (clientX - r.left) / sx
@@ -1219,7 +1198,7 @@ export function GameCanvas({
           : layout.approachProgress < 0.45
             ? 'A monster is approaching… slash the morpheme boundary!'
             : 'Slash the morpheme boundary!'
-      ctx.fillText(msg, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 110)
+      ctx.fillText(msg, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 168)
       ctx.restore()
     }
 

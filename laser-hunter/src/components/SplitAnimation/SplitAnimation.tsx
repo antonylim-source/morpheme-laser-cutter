@@ -57,7 +57,7 @@ export function SplitAnimation({ word, status, failCount }: Props) {
             </motion.div>
 
             <motion.div
-              className="absolute inset-x-0 bottom-[4.5rem] flex justify-center px-3 pb-2"
+              className="absolute inset-x-0 bottom-[11rem] flex justify-center px-3 pb-2"
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: reduce ? 0.55 : 0.95, duration: reduce ? 0.3 : 0.5 }}
