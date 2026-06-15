@@ -4,11 +4,14 @@ import type { GameState } from '../../types/game.types'
 export function HintOverlay({
   state,
   boundaryX01,
+  hideModal = false,
   onStart,
 }: {
   state: GameState
   /** boundaryPixelX / CANVAS_WIDTH */
   boundaryX01: number
+  /** 10번째 별 채움 대기 중 힌트 모달 숨김 */
+  hideModal?: boolean
   onStart: () => void
 }) {
   const reduce = useReducedMotion()
@@ -59,7 +62,7 @@ export function HintOverlay({
 
       {/* Hint modal (3 misses) — start screen is handled by StartScreen */}
       <AnimatePresence>
-        {state.status === 'hint' ? (
+        {state.status === 'hint' && !hideModal ? (
           <motion.div
             className="absolute inset-0 z-40 flex items-center justify-center bg-sky-900/40"
             initial={{ opacity: 0 }}

@@ -14,11 +14,22 @@ import { useBoundaryCheck } from './hooks/useBoundaryCheck'
 import { useGameState } from './hooks/useGameState'
 import { useSoundEffects } from './hooks/useSoundEffects'
 import { useReducedMotion } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import type { AgeMode, BoundaryCheckResult } from './types/game.types'
 import { wordList } from './data/wordList'
 import type { MonsterLayoutSnapshot } from './utils/monsterLayout'
 import { publicAsset } from './utils/publicAsset'
+
+const TOTAL_WORDS = 10
+/** progress-bar__star-pop(0.55s) 재생 후 결과 팝업 */
+const FINAL_STAR_POP_MS = 800
+
+function clearAppTimer(ref: MutableRefObject<number | null>) {
+  if (ref.current != null) {
+    window.clearTimeout(ref.current)
+    ref.current = null
+  }
+}
 
 function App() {
   const game = useGameState()
@@ -39,8 +50,41 @@ function App() {
   const [imagesLoading, setImagesLoading] = useState(false)
   const [imagesReady, setImagesReady] = useState(false)
   const nextTimerRef = useRef<number | null>(null)
+  const gameOverTimerRef = useRef<number | null>(null)
   const monsterLayoutRef = useRef<MonsterLayoutSnapshot | null>(null)
   const [boundaryX01, setBoundaryX01] = useState(0.5)
+
+  const scheduleGameOver = useCallback(() => {
+    clearAppTimer(gameOverTimerRef)
+    gameOverTimerRef.current = window.setTimeout(() => {
+      setGameOver(true)
+    }, FINAL_STAR_POP_MS)
+  }, [])
+
+  const completeWordAndAdvance = useCallback(() => {
+    setWordsDone((n) => {
+      const next = n + 1
+      if (next >= TOTAL_WORDS) {
+        scheduleGameOver()
+        return next
+      }
+      game.nextWord()
+      return next
+    })
+  }, [game, scheduleGameOver])
+
+  const handleHintAdvance = useCallback(() => {
+    clearAppTimer(nextTimerRef)
+    completeWordAndAdvance()
+  }, [completeWordAndAdvance])
+
+  const resetSession = useCallback(() => {
+    clearAppTimer(nextTimerRef)
+    clearAppTimer(gameOverTimerRef)
+    setWordsDone(0)
+    setGameOver(false)
+    setCombo(0)
+  }, [])
 
   // fallback when canvas layout not yet emitted
   const wordLayout = useMemo(() => {
@@ -55,21 +99,14 @@ function App() {
 
   // auto next word after 1.5s on result states
   useEffect(() => {
-    if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
+    clearAppTimer(nextTimerRef)
     if (gameOver) return
 
     if (state.status === 'success' || state.status === 'hint') {
-      nextTimerRef.current = window.setTimeout(() => {
-        setWordsDone((n) => {
-          const next = n + 1
-          if (next >= 10) {
-            setGameOver(true)
-            return next
-          }
-          game.nextWord()
-          return next
-        })
-      }, state.status === 'success' ? 3000 : 1500)
+      nextTimerRef.current = window.setTimeout(
+        completeWordAndAdvance,
+        state.status === 'success' ? 3000 : 1500,
+      )
     }
 
     if (state.status === 'fail') {
@@ -79,9 +116,9 @@ function App() {
     }
 
     return () => {
-      if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
+      clearAppTimer(nextTimerRef)
     }
-  }, [state.status, game, gameOver])
+  }, [state.status, game, gameOver, completeWordAndAdvance])
 
   // BGM: 음소거 동기화 + 시작 화면·게임 오버에서는 정지
   useEffect(() => {
@@ -181,10 +218,7 @@ function App() {
 
       if (e.key.toLowerCase() === 'r') {
         e.preventDefault()
-        if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
-        setWordsDone(0)
-        setGameOver(false)
-        setCombo(0)
+        resetSession()
         setDevOverlay(false)
         game.resetGame()
       }
@@ -277,10 +311,7 @@ function App() {
             score={state.score}
             wordsCompleted={wordsDone}
             onPlayAgain={() => {
-              if (nextTimerRef.current != null) window.clearTimeout(nextTimerRef.current)
-              setWordsDone(0)
-              setGameOver(false)
-              setCombo(0)
+              resetSession()
               game.resetGame()
             }}
           />
@@ -294,7 +325,8 @@ function App() {
           <HintOverlay
             state={state}
             boundaryX01={boundaryX01}
-            onStart={() => game.nextWord()}
+            hideModal={wordsDone >= TOTAL_WORDS}
+            onStart={handleHintAdvance}
           />
       </main>
 
@@ -352,7 +384,7 @@ function App() {
 
       {state.status !== 'idle' && !gameOver ? (
         <footer className="pointer-events-none absolute bottom-[6px] left-0 right-0 z-50 flex translate-y-[40px] items-end justify-center px-3">
-          <ProgressBar done={wordsDone} total={10} />
+          <ProgressBar done={wordsDone} total={TOTAL_WORDS} />
         </footer>
       ) : null}
     </div>
