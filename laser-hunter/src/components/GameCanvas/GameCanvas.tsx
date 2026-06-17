@@ -102,6 +102,9 @@ const SUCCESS_SHOCKWAVE_MS = 380
 const DEFLECT_BEAM_MS = 480
 const DEFLECT_SPARK_MS = 280
 const FAIL_FLASH_MS = 220
+const SLASH_FLASH_MS = 220
+const SUCCESS_SCREEN_FLASH_MS = 180
+const TIER_ENTRANCE_MS = 720
 const MISS_DEBRIS_COUNT = { normal: 10, reduce: 5 } as const
 
 const STONE_PALETTE = [
@@ -133,6 +136,8 @@ type DebrisFragment = {
   floorY: number
   bouncesLeft: number
 }
+
+type SlashFlashSnapshot = { x: number; y: number; startMs: number }
 
 type DustPuff = {
   x: number
@@ -273,6 +278,9 @@ export function GameCanvas({
   const growPunchStartRef = useRef(0)
   const wordPopStartRef = useRef(0)
   const successFlashStartRef = useRef(0)
+  const slashFlashRef = useRef<SlashFlashSnapshot | null>(null)
+  const tierEntranceStartRef = useRef(0)
+  const prevTierImageRef = useRef(getMonsterTier(0).image)
   const successSplitStartRef = useRef(0)
   const frozenSuccessLayoutRef = useRef<MonsterLayoutSnapshot | null>(null)
   const splitDebrisRef = useRef<DebrisFragment[]>([])
@@ -333,9 +341,18 @@ export function GameCanvas({
     failJuiceRef.current = null
     missDebrisRef.current = []
     splitCutCacheRef.current = null
+    slashFlashRef.current = null
     monsterAnimMsRef.current = 0
     layoutSnapshotRef.current = computeMonsterLayout(word, 0, failCount)
   }, [word.id])
+
+  useEffect(() => {
+    const tierImage = getMonsterTier(wordsDone).image
+    if (wordsDone > 0 && tierImage !== prevTierImageRef.current) {
+      tierEntranceStartRef.current = performance.now()
+    }
+    prevTierImageRef.current = tierImage
+  }, [wordsDone])
 
   useEffect(() => {
     if (failCount > prevFailCountRef.current) {
@@ -581,6 +598,7 @@ export function GameCanvas({
       if (dy > 30 && isWordSlashable(approachRef.current)) {
         const slashX = getSlashXAtWordY(start, p, WORD_Y_POSITION)
         lastTouchXRef.current = slashX
+        slashFlashRef.current = { x: slashX, y: WORD_Y_POSITION, startMs: performance.now() }
         onSlashAttempt(slashX, layoutSnapshotRef.current)
       }
       gestureStartRef.current = null
@@ -689,17 +707,29 @@ export function GameCanvas({
 
       const renderScale = getMonsterRenderScale(monsterSequenceSheetsRef.current, wordsDone)
 
+      const frameNow = performance.now()
+      const entranceMul = getTierEntranceScale(
+        tierEntranceStartRef.current,
+        frameNow,
+        reduceMotion,
+      )
+      const entranceYOffset = getTierEntranceYOffset(
+        tierEntranceStartRef.current,
+        frameNow,
+        reduceMotion,
+      )
+
       const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
       // fail 성장(×1.5^n)·grow punch가 겹쳐도 몬스터가 스테이지 밖으로 잘리지 않도록 폭 상한
-      const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale * renderScale)
+      const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale * renderScale * entranceMul)
       const h = w * aspect
       const drawOffsetX = getMonsterDrawOffsetX(
         monsterSequenceSheetsRef.current,
         wordsDone,
         w,
       )
-      const bob = reduceMotion ? 0 : Math.sin(performance.now() / 260) * 5 * bobPhase
-      const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob
+      const bob = reduceMotion ? 0 : Math.sin(frameNow / 260) * 5 * bobPhase
+      const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordZone.wordY) + bob + entranceYOffset
       const x = xCenter - w / 2 + drawOffsetX
       const y = yCenter - h / 2
       const depthAlpha = 0.5 + 0.5 * layout.approachProgress
@@ -1387,6 +1417,7 @@ export function GameCanvas({
       }
 
       drawNeonLaser()
+      drawSlashFlash(ctx, slashFlashRef.current, now, reduceMotion)
       drawDeflection()
       drawFailJuiceEffects(ctx, failJuiceRef.current, now, reduceMotion)
       if (
@@ -1396,6 +1427,7 @@ export function GameCanvas({
       ) {
         drawSuccessJuiceEffects(ctx, successJuiceRef.current, now, reduceMotion)
       }
+      drawSuccessScreenFlash(ctx, successFlashStartRef.current, now, reduceMotion)
       if (gameStatus !== 'success') {
         drawInstruction(layout)
       }
@@ -2086,6 +2118,98 @@ function drawSuccessJuiceEffects(
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     ctx.restore()
   }
+}
+
+function getTierEntranceScale(startMs: number, now: number, reduceMotion: boolean): number {
+  if (reduceMotion || startMs <= 0) return 1
+  const age = now - startMs
+  if (age < 0 || age >= TIER_ENTRANCE_MS) return 1
+  const t = age / TIER_ENTRANCE_MS
+  if (t < 0.65) {
+    const u = t / 0.65
+    return 0.55 + 0.5 * (1 - Math.pow(1 - u, 3))
+  }
+  const u = (t - 0.65) / 0.35
+  return 1.05 - 0.05 * u
+}
+
+function getTierEntranceYOffset(startMs: number, now: number, reduceMotion: boolean): number {
+  if (reduceMotion || startMs <= 0) return 0
+  const age = now - startMs
+  if (age < 0 || age >= TIER_ENTRANCE_MS) return 0
+  const t = age / TIER_ENTRANCE_MS
+  return -48 * Math.sin(t * Math.PI)
+}
+
+function drawSlashFlash(
+  ctx: CanvasRenderingContext2D,
+  flash: SlashFlashSnapshot | null,
+  now: number,
+  reduceMotion: boolean,
+) {
+  if (!flash || reduceMotion) return
+  const age = now - flash.startMs
+  if (age < 0 || age >= SLASH_FLASH_MS) return
+
+  const t = age / SLASH_FLASH_MS
+  const alpha = (1 - t * t) * 0.9
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+
+  const beamG = ctx.createLinearGradient(flash.x - 50, 0, flash.x + 50, 0)
+  beamG.addColorStop(0, 'rgba(0,0,0,0)')
+  beamG.addColorStop(0.45, `rgba(255,255,255,${(alpha * 0.55).toFixed(3)})`)
+  beamG.addColorStop(0.5, `rgba(200,250,255,${alpha.toFixed(3)})`)
+  beamG.addColorStop(0.55, `rgba(255,255,255,${(alpha * 0.55).toFixed(3)})`)
+  beamG.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = beamG
+  ctx.fillRect(flash.x - 55, flash.y - 140, 110, 280)
+
+  ctx.strokeStyle = `rgba(103, 232, 249, ${alpha.toFixed(3)})`
+  ctx.lineWidth = 5 * (1 - t * 0.45)
+  ctx.shadowColor = '#67e8f9'
+  ctx.shadowBlur = 22 * alpha
+  ctx.beginPath()
+  ctx.moveTo(flash.x - 90, flash.y)
+  ctx.lineTo(flash.x + 90, flash.y)
+  ctx.stroke()
+
+  for (let ring = 0; ring < 2; ring++) {
+    const rt = Math.max(0, (t - ring * 0.1) / (1 - ring * 0.1))
+    if (rt <= 0 || rt > 1) continue
+    const radius = 8 + rt * (42 + ring * 18)
+    const ringAlpha = (1 - rt) * (0.7 - ring * 0.2) * alpha
+    ctx.strokeStyle = `rgba(250, 204, 21, ${ringAlpha.toFixed(3)})`
+    ctx.lineWidth = Math.max(1, 3 - ring * 0.8)
+    ctx.shadowBlur = 8
+    ctx.shadowColor = '#fde047'
+    ctx.beginPath()
+    ctx.arc(flash.x, flash.y, radius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  ctx.restore()
+}
+
+function drawSuccessScreenFlash(
+  ctx: CanvasRenderingContext2D,
+  startMs: number,
+  now: number,
+  reduceMotion: boolean,
+) {
+  if (reduceMotion || startMs <= 0) return
+  const age = now - startMs
+  if (age < 0 || age >= SUCCESS_SCREEN_FLASH_MS) return
+
+  const t = age / SUCCESS_SCREEN_FLASH_MS
+  const alpha = (1 - t) * 0.32
+  ctx.save()
+  ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+  ctx.fillStyle = `rgba(103, 232, 249, ${(alpha * 0.35).toFixed(3)})`
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+  ctx.restore()
 }
 
 function debrisRand(seed: number): number {

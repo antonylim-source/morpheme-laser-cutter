@@ -44,16 +44,24 @@ export function HintOverlay({
 
             {level >= 3 ? (
               <div className="absolute inset-0">
-                <div
+                <motion.div
                   className="absolute top-[33%] h-[22%] w-1 rounded-full bg-emerald-300 shadow-[0_0_24px_rgba(52,211,153,0.7)]"
                   style={{ left: `${boundaryX01 * 100}%` }}
+                  animate={reduce ? { opacity: 0.9 } : { opacity: [0.5, 1, 0.5], scaleY: [0.92, 1.05, 0.92] }}
+                  transition={{ duration: 0.55, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
                 />
-                <div
+                <motion.div
                   className="font-display absolute top-[55%] -translate-x-1/2 rounded-full border-[3px] border-white bg-emerald-500 px-4 py-1.5 text-sm font-extrabold text-white shadow-lg"
                   style={{ left: `${boundaryX01 * 100}%` }}
+                  animate={
+                    reduce
+                      ? {}
+                      : { scale: [1, 1.08, 1], y: [0, -4, 0] }
+                  }
+                  transition={{ duration: 0.7, repeat: reduce ? 0 : Infinity, ease: 'easeInOut' }}
                 >
                   ✂️ 여기를 베어요!
-                </div>
+                </motion.div>
               </div>
             ) : null}
           </motion.div>

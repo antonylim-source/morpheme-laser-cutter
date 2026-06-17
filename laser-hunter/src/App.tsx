@@ -14,8 +14,9 @@ import { useBgm } from './hooks/useBgm'
 import { useBoundaryCheck } from './hooks/useBoundaryCheck'
 import { useGameState } from './hooks/useGameState'
 import { useSoundEffects } from './hooks/useSoundEffects'
-import { useReducedMotion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { fireSuccessConfetti } from './utils/confetti'
 import type { AgeMode, BoundaryCheckResult } from './types/game.types'
 import { wordList } from './data/wordList'
 import type { MonsterLayoutSnapshot } from './utils/monsterLayout'
@@ -153,6 +154,7 @@ function App() {
       const nextCombo = combo + 1
       playSound('crack')
       playSound(nextCombo >= 3 ? 'combo' : 'success')
+      fireSuccessConfetti(reduceMotion)
       if (!reduceMotion && typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate(nextCombo >= 3 ? [12, 35, 22] : [10, 28, 16])
       }
@@ -180,6 +182,10 @@ function App() {
     const t = window.setTimeout(() => setFeedback(null), 900)
     return () => window.clearTimeout(t)
   }, [feedback])
+
+  useEffect(() => {
+    if (gameOver) fireSuccessConfetti(reduceMotion)
+  }, [gameOver, reduceMotion])
 
   // keyboard support: SPACE / H / R
   useEffect(() => {
@@ -287,10 +293,15 @@ function App() {
   }
 
   return (
-    <div
-      className="relative h-full w-full bg-cover bg-center bg-no-repeat text-white"
-      style={{ backgroundImage: `url(${publicAsset('images/bg_img.png')})` }}
-    >
+    <div className="relative h-full w-full overflow-hidden text-white">
+      <div
+        className={[
+          'pointer-events-none absolute inset-[-5%] bg-cover bg-center bg-no-repeat',
+          reduceMotion ? '' : 'animate-bg-drift',
+        ].join(' ')}
+        style={{ backgroundImage: `url(${publicAsset('images/bg_img.png')})` }}
+        aria-hidden
+      />
       <main className="absolute inset-0 overflow-hidden">
           <FeedbackPopup kind={feedback?.kind ?? null} triggerKey={feedback?.key ?? 0} />
           <GameCanvas
@@ -347,17 +358,20 @@ function App() {
       </main>
 
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-[52px] items-center justify-between px-4">
-        <img
+        <motion.img
           src={publicAsset('images/title_log.png')}
           alt="Morpheme Laser Cutter"
           className="h-14 w-auto translate-y-[15px] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]"
+          animate={reduceMotion ? {} : { y: [15, 11, 15] }}
+          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
         />
         <div className="flex translate-y-[23px] items-center gap-2">
-          <button
+          <motion.button
             type="button"
             onClick={() => setMuted((m) => !m)}
             aria-label={muted ? '소리 켜기' : '소리 끄기'}
             aria-pressed={muted}
+            whileTap={reduceMotion ? {} : { scale: 0.9 }}
             className="btn-bounce pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border-[3px] border-white/90 bg-slate-800/80 shadow-[0_3px_0_rgba(0,0,0,0.2)]"
           >
             <img
@@ -366,7 +380,7 @@ function App() {
               aria-hidden
               className="h-5 w-5 object-contain"
             />
-          </button>
+          </motion.button>
           {state.status !== 'idle' && !gameOver ? (
             <ScoreBoard score={state.score} combo={combo} misses={state.failCount} />
           ) : null}
@@ -384,17 +398,28 @@ function App() {
             />
             Slice the middle of the word!
           </div>
-          {combo >= 2 ? (
-            <div className="animate-wiggle flex items-center justify-center gap-1.5 text-sm font-bold text-yellow-300 drop-shadow-md">
-              <img
-                src={UI_ICONS.fire}
-                alt=""
-                aria-hidden
-                className="h-5 w-5 object-contain"
-              />
-              {combo} Combo!
-            </div>
-          ) : null}
+          <AnimatePresence>
+            {combo >= 2 ? (
+              <motion.div
+                key={`combo-${combo}`}
+                initial={reduceMotion ? false : { opacity: 0, scale: 0.6, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={reduceMotion ? undefined : { opacity: 0, scale: 0.8, y: -6 }}
+                transition={{ duration: reduceMotion ? 0.15 : 0.35, ease: [0.22, 1.2, 0.36, 1] }}
+                className="flex items-center justify-center gap-1.5 text-sm font-bold text-yellow-300 drop-shadow-md"
+              >
+                <motion.img
+                  src={UI_ICONS.fire}
+                  alt=""
+                  aria-hidden
+                  className="h-5 w-5 object-contain"
+                  animate={reduceMotion ? {} : { rotate: [-6, 6, 0], scale: [1, 1.25, 1] }}
+                  transition={{ duration: 0.45 }}
+                />
+                {combo} Combo!
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       ) : null}
 
