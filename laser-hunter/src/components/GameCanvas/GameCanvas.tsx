@@ -37,6 +37,7 @@ import {
   getMonsterSequenceFrameRect,
   getMonsterSequenceOffsetX,
   getMonsterSequenceRenderScale,
+  getMonsterSuccessFrameIndex,
 } from '../../constants/monsterSequence'
 
 type Props = {
@@ -69,6 +70,15 @@ const SUCCESS_SPLIT_ROTATE_DEG = 12
 /** 분열 반쪽이 위로 떴다가 떨어지는 포물선: 315t² − 275t (t=0.44에서 −60px, t=1에서 +40px) */
 const SUCCESS_SPLIT_ARC_A = 315
 const SUCCESS_SPLIT_ARC_B = 275
+/** success 시퀀스 — 레이저 적중 타이밍에 맞춘 글자 분리 (몬스터1·4) */
+const SUCCESS_SEQ_WORD_SPLIT_DELAY_MS = 500
+const SUCCESS_SEQ_WORD_SPLIT_MS = 850
+const SUCCESS_SEQ_WORD_SPLIT_OFFSET_PX = 130
+const SUCCESS_SEQ_WORD_SPLIT_ROTATE_DEG = 8
+const SUCCESS_SEQ_WORD_ARC_A = 190
+const SUCCESS_SEQ_WORD_ARC_B = 165
+const SUCCESS_SEQ_WORD_FADE_START_MS = 1200
+const SUCCESS_SEQ_WORD_FADE_MS = 700
 const CUT_EDGE_BASE_THICKNESS = 12
 const CUT_EDGE_MAX_THICKNESS = 18
 /** 반쪽이 이 거리 이상 벌어지면 절단면 페이드아웃 */
@@ -356,20 +366,21 @@ export function GameCanvas({
     const sheets = monsterSequenceSheetsRef.current
 
     for (const tier of MONSTER_TIERS) {
-      if (!tier.sequenceSheet) continue
-      const path = tier.sequenceSheet
-      if (sheets.has(path)) continue
+      for (const path of [tier.sequenceSheet, tier.successSequenceSheet]) {
+        if (!path) continue
+        if (sheets.has(path)) continue
 
-      const sheet = new Image()
-      const assign = () => {
-        if (!cancelled) sheets.set(path, sheet)
+        const sheet = new Image()
+        const assign = () => {
+          if (!cancelled) sheets.set(path, sheet)
+        }
+        sheet.onload = assign
+        sheet.onerror = () => {
+          if (!cancelled) sheets.delete(path)
+        }
+        sheet.src = publicAsset(path)
+        if (sheet.complete && sheet.naturalWidth > 0) assign()
       }
-      sheet.onload = assign
-      sheet.onerror = () => {
-        if (!cancelled) sheets.delete(path)
-      }
-      sheet.src = publicAsset(path)
-      if (sheet.complete && sheet.naturalWidth > 0) assign()
     }
 
     return () => {
@@ -387,6 +398,8 @@ export function GameCanvas({
       successSplitStartRef.current = now
       const frozen = { ...layoutSnapshotRef.current }
       frozenSuccessLayoutRef.current = frozen
+      const tier = getMonsterTier(wordsDone)
+      const hasSuccessSequence = !!tier.successSequenceSheet
       const body = computeMonsterBodyRectStatic(
         frozen,
         monsterImgRef.current,
@@ -400,42 +413,50 @@ export function GameCanvas({
         monsterSequenceSheetsRef.current,
         wordsDone,
       )
-      const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
-      const countMul = 1 + Math.min(combo + 1, 4) * 0.05
-      hitStopUntilRef.current = reduceMotion ? now : now + HIT_STOP_MS
+      hitStopUntilRef.current =
+        reduceMotion || hasSuccessSequence ? now : now + HIT_STOP_MS
       splitCutCacheRef.current = null
-      successJuiceRef.current = {
-        cutX: frozen.boundaryPixelX,
-        yCenter: body.yCenter,
-        yTop: body.y - 8,
-        yBottom: body.y + body.h + 8,
-        startMs: now,
-      }
-      debrisWaveStateRef.current = {
-        cutX: frozen.boundaryPixelX,
-        yTop: body.y - 12,
-        yBottom: body.y + body.h + 12,
-        floorY,
-        yCenter: body.yCenter,
-        reduceMotion,
-        startMs: now,
-        wavesSpawned: 0,
-        countMul,
-      }
       splitDebrisRef.current = []
       dustPuffsRef.current = []
-      starConfettiRef.current = spawnStarConfetti(
-        frozen.boundaryPixelX,
-        body.yCenter,
-        now,
-        reduceMotion,
-      )
-      if (!reduceMotion) {
-        void shakeControls.start({
-          x: [0, -18, 18, -12, 12, 0],
-          scale: [1, 1.07, 1],
-          transition: { duration: 0.32, ease: 'easeOut' },
-        })
+
+      if (hasSuccessSequence) {
+        successJuiceRef.current = null
+        debrisWaveStateRef.current = null
+        starConfettiRef.current = []
+      } else {
+        const floorY = Math.min(CANVAS_HEIGHT - 52, body.y + body.h + 28)
+        const countMul = 1 + Math.min(combo + 1, 4) * 0.05
+        successJuiceRef.current = {
+          cutX: frozen.boundaryPixelX,
+          yCenter: body.yCenter,
+          yTop: body.y - 8,
+          yBottom: body.y + body.h + 8,
+          startMs: now,
+        }
+        debrisWaveStateRef.current = {
+          cutX: frozen.boundaryPixelX,
+          yTop: body.y - 12,
+          yBottom: body.y + body.h + 12,
+          floorY,
+          yCenter: body.yCenter,
+          reduceMotion,
+          startMs: now,
+          wavesSpawned: 0,
+          countMul,
+        }
+        starConfettiRef.current = spawnStarConfetti(
+          frozen.boundaryPixelX,
+          body.yCenter,
+          now,
+          reduceMotion,
+        )
+        if (!reduceMotion) {
+          void shakeControls.start({
+            x: [0, -18, 18, -12, 12, 0],
+            scale: [1, 1.07, 1],
+            transition: { duration: 0.32, ease: 'easeOut' },
+          })
+        }
       }
       return
     }
@@ -1091,6 +1112,47 @@ export function GameCanvas({
       ctx.restore()
     }
 
+    const drawSuccessSequenceWord = (
+      layout: MonsterLayoutSnapshot,
+      textMetrics: WordTextMetrics,
+      now: number,
+    ) => {
+      const splitAge = now - successSplitStartRef.current
+      if (splitAge < SUCCESS_SEQ_WORD_SPLIT_DELAY_MS) {
+        drawWordOnMonster(layout, textMetrics)
+        return
+      }
+
+      const wordSplitAge = splitAge - SUCCESS_SEQ_WORD_SPLIT_DELAY_MS
+      const body = getMonsterBodyRect(layout, layout.monsterX, 1)
+      const cutX = layout.boundaryPixelX
+      const t = Math.min(1, wordSplitAge / SUCCESS_SEQ_WORD_SPLIT_MS)
+      const ease = 1 - Math.pow(1 - t, 3)
+      const offset =
+        (reduceMotion ? 32 : SUCCESS_SEQ_WORD_SPLIT_OFFSET_PX) * ease
+      const rotRad =
+        (reduceMotion ? 0 : SUCCESS_SEQ_WORD_SPLIT_ROTATE_DEG) *
+        ease *
+        (Math.PI / 180)
+      const arcY = reduceMotion
+        ? 0
+        : SUCCESS_SEQ_WORD_ARC_A * t * t - SUCCESS_SEQ_WORD_ARC_B * t
+
+      let wordAlpha = 1
+      if (wordSplitAge > SUCCESS_SEQ_WORD_FADE_START_MS) {
+        wordAlpha = Math.max(
+          0,
+          1 - (wordSplitAge - SUCCESS_SEQ_WORD_FADE_START_MS) / SUCCESS_SEQ_WORD_FADE_MS,
+        )
+      }
+      if (wordAlpha <= 0) return
+
+      ctx.save()
+      ctx.globalAlpha = wordAlpha
+      drawSplitWordHalves(layout, textMetrics, cutX, offset, rotRad, body.yCenter, arcY)
+      ctx.restore()
+    }
+
     const drawSkeleton = () => {
       ctx.save()
       roundRect(ctx, CANVAS_WIDTH / 2 - 240, wordZone.wordY - 46, 480, 92, 22)
@@ -1283,13 +1345,35 @@ export function GameCanvas({
       if (loading) {
         drawSkeleton()
       } else if (gameStatus === 'success') {
-        tickDebrisWaves(debrisWaveStateRef, splitDebrisRef, dustPuffsRef, effectNow)
-        drawSplitMonster(drawLayout, textMetrics, effectNow)
-        updateSplitDebris(splitDebrisRef.current, deltaSec, effectNow)
-        drawDustPuffs(ctx, dustPuffsRef.current, effectNow)
-        drawSplitDebris(ctx, splitDebrisRef.current, effectNow)
-        updateStarConfetti(starConfettiRef.current, deltaSec)
-        drawStarConfetti(ctx, starConfettiRef.current, effectNow)
+        const successPath = getMonsterTier(wordsDone).successSequenceSheet
+        const successSheet = successPath
+          ? getTierSuccessSequenceSheet(monsterSequenceSheetsRef.current, wordsDone)
+          : null
+
+        if (successPath && successSheet) {
+          drawSuccessSequenceMonster(
+            ctx,
+            drawLayout,
+            wordZone.wordY,
+            effectNow,
+            successSplitStartRef.current,
+            successSheet,
+            successPath,
+            monsterImgRef.current,
+            monsterSequenceSheetsRef.current,
+            wordsDone,
+            reduceMotion,
+          )
+          drawSuccessSequenceWord(drawLayout, textMetrics, effectNow)
+        } else {
+          tickDebrisWaves(debrisWaveStateRef, splitDebrisRef, dustPuffsRef, effectNow)
+          drawSplitMonster(drawLayout, textMetrics, effectNow)
+          updateSplitDebris(splitDebrisRef.current, deltaSec, effectNow)
+          drawDustPuffs(ctx, dustPuffsRef.current, effectNow)
+          drawSplitDebris(ctx, splitDebrisRef.current, effectNow)
+          updateStarConfetti(starConfettiRef.current, deltaSec)
+          drawStarConfetti(ctx, starConfettiRef.current, effectNow)
+        }
       } else {
         drawMonster(layout, textMetrics)
       }
@@ -1305,7 +1389,13 @@ export function GameCanvas({
       drawNeonLaser()
       drawDeflection()
       drawFailJuiceEffects(ctx, failJuiceRef.current, now, reduceMotion)
-      drawSuccessJuiceEffects(ctx, successJuiceRef.current, now, reduceMotion)
+      if (
+        !(
+          gameStatus === 'success' && getMonsterTier(wordsDone).successSequenceSheet
+        )
+      ) {
+        drawSuccessJuiceEffects(ctx, successJuiceRef.current, now, reduceMotion)
+      }
       if (gameStatus !== 'success') {
         drawInstruction(layout)
       }
@@ -1550,6 +1640,58 @@ function getTierSequenceSheet(
   return isMonsterSequenceReady(sheet) ? sheet : null
 }
 
+function getTierSuccessSequenceSheet(
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+): HTMLImageElement | null {
+  const path = getMonsterTier(wordsDone).successSequenceSheet
+  if (!path) return null
+  const sheet = sheets.get(path) ?? null
+  return isMonsterSequenceReady(sheet) ? sheet : null
+}
+
+function drawSuccessSequenceMonster(
+  ctx: CanvasRenderingContext2D,
+  layout: MonsterLayoutSnapshot,
+  wordY: number,
+  now: number,
+  successStartMs: number,
+  sheet: HTMLImageElement,
+  sheetPath: string,
+  monsterImg: HTMLImageElement | null,
+  sheets: Map<string, HTMLImageElement>,
+  wordsDone: number,
+  reduceMotion: boolean,
+) {
+  const aspect =
+    getMonsterSequenceAspect(sheetPath) ??
+    getMonsterDisplayAspect(monsterImg, sheets, wordsDone)
+  const renderScale = getMonsterSequenceRenderScale(sheetPath)
+  const body = computeMonsterBodyRectStatic(
+    layout,
+    monsterImg,
+    wordY,
+    aspect ?? undefined,
+    renderScale,
+    sheets,
+    wordsDone,
+    sheetPath,
+  )
+  const cfg = getMonsterSequenceConfig(sheetPath)
+  const elapsed = now - successStartMs
+  const frameIndex = reduceMotion
+    ? Math.max(0, (cfg?.frameCount ?? 1) - 1)
+    : getMonsterSuccessFrameIndex(elapsed, sheetPath)
+  const frame = getMonsterSequenceFrameRect(frameIndex, sheetPath)
+
+  ctx.save()
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.globalAlpha = 1
+  ctx.drawImage(sheet, frame.x, frame.y, frame.w, frame.h, body.x, body.y, body.w, body.h)
+  ctx.restore()
+}
+
 function getMonsterRenderScale(
   sheets: Map<string, HTMLImageElement>,
   wordsDone: number,
@@ -1559,6 +1701,15 @@ function getMonsterRenderScale(
   return getMonsterSequenceRenderScale(sequencePath)
 }
 
+function getDrawOffsetXForSheet(sheetPath: string | undefined, destW: number): number {
+  if (!sheetPath) return 0
+  const sourceOffsetX = getMonsterSequenceOffsetX(sheetPath)
+  if (sourceOffsetX === 0) return 0
+  const frameW = getMonsterSequenceConfig(sheetPath)?.frameW
+  if (!frameW) return 0
+  return sourceOffsetX * (destW / frameW)
+}
+
 function getMonsterDrawOffsetX(
   sheets: Map<string, HTMLImageElement>,
   wordsDone: number,
@@ -1566,11 +1717,7 @@ function getMonsterDrawOffsetX(
 ): number {
   const sequencePath = getMonsterTier(wordsDone).sequenceSheet
   if (!sequencePath || !getTierSequenceSheet(sheets, wordsDone)) return 0
-  const sourceOffsetX = getMonsterSequenceOffsetX(sequencePath)
-  if (sourceOffsetX === 0) return 0
-  const frameW = getMonsterSequenceConfig(sequencePath)?.frameW
-  if (!frameW) return 0
-  return sourceOffsetX * (destW / frameW)
+  return getDrawOffsetXForSheet(sequencePath, destW)
 }
 
 function getMonsterDisplayAspect(
@@ -1598,6 +1745,8 @@ function computeMonsterBodyRectStatic(
   renderScale = 1,
   sheets?: Map<string, HTMLImageElement>,
   wordsDone = 0,
+  /** 지정 시 해당 시트의 offsetX 사용 (success 시퀀스 등) */
+  offsetSheetPath?: string,
 ): MonsterBodyRect {
   const totalScale = layout.totalScale
   const aspect =
@@ -1608,7 +1757,11 @@ function computeMonsterBodyRectStatic(
   const baseW = Math.min(672, Math.max(360, (layout.canvasWordWidth + 180) * 1.2))
   const w = Math.min(MONSTER_MAX_WIDTH, baseW * totalScale * renderScale)
   const h = w * aspect
-  const drawOffsetX = sheets ? getMonsterDrawOffsetX(sheets, wordsDone, w) : 0
+  const drawOffsetX = offsetSheetPath
+    ? getDrawOffsetXForSheet(offsetSheetPath, w)
+    : sheets
+      ? getMonsterDrawOffsetX(sheets, wordsDone, w)
+      : 0
   const yCenter = getMonsterVisualCenterY(layout.approachProgress, wordY)
   const x = layout.monsterX - w / 2 + drawOffsetX
   const y = yCenter - h / 2

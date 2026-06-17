@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "process:morpheme-png": "node scripts/process-morpheme-png.mjs",
-    "optimize:images": "node scripts/optimize-images.mjs"
+    "optimize:images": "node scripts/optimize-images.mjs",
+    "optimize:success-sheets": "node scripts/optimize-success-sheets.mjs",
+    "resize:monster-sequences": "node scripts/resize-monster-sequences.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

@@ -71,6 +71,9 @@ function ruleFor(absPath) {
   if (base.endsWith('-sequence.png')) {
     return { png: pngPalette(90) }
   }
+  if (/^monster_[1-4]_success\.png$/.test(base)) {
+    return { png: pngPalette(85) }
+  }
   if (MONSTER_STATIC_RE.test(base)) {
     return { png: pngPalette(90) }
   }

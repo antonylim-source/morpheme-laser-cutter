@@ -6,7 +6,8 @@ import { ProgressBar } from './components/ProgressBar'
 import { ScoreBoard } from './components/ScoreBoard'
 import { StartScreen } from './components/StartScreen'
 import { SplitAnimation } from './components/SplitAnimation'
-import { CANVAS_WIDTH, MONSTER_TIERS, isWordSlashable } from './constants/gameConfig'
+import { CANVAS_WIDTH, getMonsterTier, MONSTER_TIERS, isWordSlashable } from './constants/gameConfig'
+import { getMonsterSuccessDurationMs, getSuccessHoldMs } from './constants/monsterSequence'
 import { UI_ICONS } from './constants/uiIcons'
 import { estimateWordTextWidth } from './utils/wordTextMetrics'
 import { useBgm } from './hooks/useBgm'
@@ -97,16 +98,23 @@ function App() {
     return { len, canvasWordWidth, wordStartX, boundaryPixelX, boundaryX01 }
   }, [state.currentWord])
 
+  const successCardDelayMs = useMemo(() => {
+    const sheet = getMonsterTier(wordsDone).successSequenceSheet
+    return sheet ? getMonsterSuccessDurationMs(sheet) : 0
+  }, [wordsDone])
+
   // auto next word after 1.5s on result states
   useEffect(() => {
     clearAppTimer(nextTimerRef)
     if (gameOver) return
 
     if (state.status === 'success' || state.status === 'hint') {
-      nextTimerRef.current = window.setTimeout(
-        completeWordAndAdvance,
-        state.status === 'success' ? 3000 : 1500,
-      )
+      const tier = getMonsterTier(wordsDone)
+      const successHoldMs =
+        state.status === 'success'
+          ? getSuccessHoldMs(tier.successSequenceSheet)
+          : 1500
+      nextTimerRef.current = window.setTimeout(completeWordAndAdvance, successHoldMs)
     }
 
     if (state.status === 'fail') {
@@ -118,7 +126,7 @@ function App() {
     return () => {
       clearAppTimer(nextTimerRef)
     }
-  }, [state.status, game, gameOver, completeWordAndAdvance])
+  }, [state.status, game, gameOver, completeWordAndAdvance, wordsDone])
 
   // BGM: 음소거 동기화 + 시작 화면·게임 오버에서는 정지
   useEffect(() => {
@@ -240,6 +248,9 @@ function App() {
       if (tier.sequenceSheet) {
         paths.add(publicAsset(tier.sequenceSheet))
       }
+      if (tier.successSequenceSheet) {
+        paths.add(publicAsset(tier.successSequenceSheet))
+      }
     }
     for (const icon of Object.values(UI_ICONS)) {
       paths.add(icon)
@@ -305,7 +316,12 @@ function App() {
               game.attemptCut(touchX, result)
             }}
           />
-          <SplitAnimation word={state.currentWord} status={state.status} failCount={state.failCount} />
+          <SplitAnimation
+            word={state.currentWord}
+            status={state.status}
+            failCount={state.failCount}
+            cardDelayMs={successCardDelayMs}
+          />
           <GameOverScreen
             visible={gameOver}
             score={state.score}

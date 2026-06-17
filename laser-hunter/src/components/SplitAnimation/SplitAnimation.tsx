@@ -5,10 +5,13 @@ type Props = {
   word: CompoundWord
   status: GameState['status']
   failCount: number
+  /** success 시퀀스 등 선행 연출이 끝난 뒤 카드 UI를 시작할 때까지 대기(ms) */
+  cardDelayMs?: number
 }
 
-export function SplitAnimation({ word, status, failCount }: Props) {
+export function SplitAnimation({ word, status, failCount, cardDelayMs = 0 }: Props) {
   const reduce = useReducedMotion() ?? false
+  const cardDelaySec = cardDelayMs / 1000
 
   const isSuccess = status === 'success'
   const isFail = status === 'fail'
@@ -50,7 +53,11 @@ export function SplitAnimation({ word, status, failCount }: Props) {
               initial={{ opacity: 0, y: 10, scale: 0.8 }}
               animate={{ opacity: 1, y: reduce ? -4 : -14, scale: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ delay: reduce ? 0.2 : 0.12, duration: reduce ? 0.35 : 0.5, ease: 'easeOut' }}
+              transition={{
+                delay: (reduce ? 0.2 : 0.12) + cardDelaySec,
+                duration: reduce ? 0.35 : 0.5,
+                ease: 'easeOut',
+              }}
               style={{ textShadow: '0 0 18px rgba(250, 204, 21, 0.55)' }}
             >
               +100
@@ -60,14 +67,17 @@ export function SplitAnimation({ word, status, failCount }: Props) {
               className="absolute inset-x-0 bottom-[11rem] flex justify-center px-3 pb-2"
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: reduce ? 0.55 : 0.95, duration: reduce ? 0.3 : 0.5 }}
+              transition={{
+                delay: (reduce ? 0.55 : 0.95) + cardDelaySec,
+                duration: reduce ? 0.3 : 0.5,
+              }}
             >
               <div className="bubble-panel w-full max-w-lg bg-slate-950/90 px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
                 <motion.div
                   className="font-display mb-3 text-center text-sm font-extrabold leading-snug text-white sm:text-base"
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: reduce ? 0.6 : 1.02 }}
+                  transition={{ delay: (reduce ? 0.6 : 1.02) + cardDelaySec }}
                 >
                   <span className="text-cyan-300">Slice!</span>
                   <span className="mx-1.5 text-white/50">→</span>
@@ -82,7 +92,7 @@ export function SplitAnimation({ word, status, failCount }: Props) {
                     label={word.morpheme1}
                     effect={word.effect1 ?? 'none'}
                     reduce={reduce}
-                    delay={reduce ? 0.65 : 1.08}
+                    delay={(reduce ? 0.65 : 1.08) + cardDelaySec}
                   />
                   <span
                     aria-hidden
@@ -95,7 +105,7 @@ export function SplitAnimation({ word, status, failCount }: Props) {
                     label={word.morpheme2}
                     effect={word.effect2 ?? 'none'}
                     reduce={reduce}
-                    delay={reduce ? 0.72 : 1.16}
+                    delay={(reduce ? 0.72 : 1.16) + cardDelaySec}
                   />
                 </div>
               </div>

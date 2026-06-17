@@ -10,37 +10,69 @@ export type MonsterSequenceConfig = {
   offsetX?: number
 }
 
-/** Ludo.ai animation-sequence.json — 시트 경로별 스펙 */
+/** Ludo.ai animation-sequence.json — 시트 경로별 스펙 (접근 75%, success 85% 리사이즈) */
 export const MONSTER_SEQUENCE_BY_SHEET: Record<string, MonsterSequenceConfig> = {
   'images/monster_4-sequence.png': {
-    frameW: 664,
-    frameH: 385,
+    frameW: 498,
+    frameH: 289,
     cols: 6,
     frameCount: 36,
     frameDurationMs: 100,
   },
   'images/monster_1-sequence.png': {
-    frameW: 648,
-    frameH: 430,
+    frameW: 486,
+    frameH: 323,
     cols: 6,
     frameCount: 36,
     frameDurationMs: 100,
   },
   'images/monster_3-sequence.png': {
-    frameW: 767,
-    frameH: 476,
+    frameW: 575,
+    frameH: 357,
     cols: 6,
     frameCount: 36,
     frameDurationMs: 100,
     renderScale: 1.2,
   },
   'images/monster_2-sequence.png': {
-    frameW: 693,
-    frameH: 439,
+    frameW: 520,
+    frameH: 329,
     cols: 6,
     frameCount: 36,
     frameDurationMs: 100,
-    offsetX: 40,
+    offsetX: 30,
+  },
+  'images/monster_4_success.png': {
+    frameW: 734,
+    frameH: 408,
+    cols: 6,
+    frameCount: 36,
+    frameDurationMs: 100,
+    renderScale: 1.78,
+  },
+  'images/monster_1_success.png': {
+    frameW: 734,
+    frameH: 408,
+    cols: 6,
+    frameCount: 36,
+    frameDurationMs: 100,
+    renderScale: 1.78,
+  },
+  'images/monster_3_success.png': {
+    frameW: 734,
+    frameH: 408,
+    cols: 6,
+    frameCount: 36,
+    frameDurationMs: 100,
+    renderScale: 1.78,
+  },
+  'images/monster_2_success.png': {
+    frameW: 734,
+    frameH: 382,
+    cols: 6,
+    frameCount: 36,
+    frameDurationMs: 100,
+    renderScale: 1.78,
   },
 }
 
@@ -98,4 +130,32 @@ export function getMonsterSequenceFrameIndex(elapsedMs: number, sheetPath: strin
   const t = ((elapsedMs % loopMs) + loopMs) % loopMs
   const pos = Math.floor(t / frameDurationMs) % cycleFrames
   return pos < frameCount ? pos : cycleFrames - pos
+}
+
+/** 정답 시퀀스 — 0 → last 한 방향 재생 */
+export function getMonsterSuccessFrameIndex(elapsedMs: number, sheetPath: string): number {
+  const cfg = getMonsterSequenceConfig(sheetPath)
+  if (!cfg) return 0
+  const idx = Math.floor(Math.max(0, elapsedMs) / cfg.frameDurationMs)
+  return Math.min(idx, cfg.frameCount - 1)
+}
+
+export function getMonsterSuccessDurationMs(sheetPath: string | undefined): number {
+  const cfg = getMonsterSequenceConfig(sheetPath)
+  if (!cfg) return 3000
+  return cfg.frameCount * cfg.frameDurationMs
+}
+
+/** success 시퀀스 종료 후 SplitAnimation 카드 UI 등장 시간 */
+export const SUCCESS_CARD_ENTRANCE_MS = 1800
+/** 카드가 완전히 보인 뒤 유지 시간 */
+export const SUCCESS_CARD_HOLD_MS = 2000
+
+export function getSuccessHoldMs(successSequenceSheet: string | undefined): number {
+  if (!successSequenceSheet) return 3000
+  return (
+    getMonsterSuccessDurationMs(successSequenceSheet) +
+    SUCCESS_CARD_ENTRANCE_MS +
+    SUCCESS_CARD_HOLD_MS
+  )
 }

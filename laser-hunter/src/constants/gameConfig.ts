@@ -25,6 +25,8 @@ export type MonsterTier = {
   image: string
   /** 접근 중 재생할 스프라이트 시트 (슬래시 분할은 image 정적 PNG 사용) */
   sequenceSheet?: string
+  /** 정답 시 재생할 전용 시퀀스 시트 (있으면 split 연출 대신 사용) */
+  successSequenceSheet?: string
 }
 
 /** wordsDone 구간별 몬스터 이미지 — 위협도 상승 티어, 마지막 단어는 보스 */
@@ -33,10 +35,26 @@ export const MONSTER_TIERS: readonly MonsterTier[] = [
     minWords: 0,
     image: 'images/monster_4.png',
     sequenceSheet: 'images/monster_4-sequence.png',
+    successSequenceSheet: 'images/monster_4_success.png',
   }, // 거미 — 도입 (1~3번째 단어)
-  { minWords: 3, image: 'images/monster_1.png', sequenceSheet: 'images/monster_1-sequence.png' }, // 골렘 — 중반 (4~6번째)
-  { minWords: 6, image: 'images/monster_3.png', sequenceSheet: 'images/monster_3-sequence.png' }, // 그리핀 — 후반 (7~9번째)
-  { minWords: 9, image: 'images/monster_2.png', sequenceSheet: 'images/monster_2-sequence.png' }, // 돌 야수 — 최종 보스 (10번째)
+  {
+    minWords: 3,
+    image: 'images/monster_1.png',
+    sequenceSheet: 'images/monster_1-sequence.png',
+    successSequenceSheet: 'images/monster_1_success.png',
+  }, // 골렘 — 중반 (4~6번째)
+  {
+    minWords: 6,
+    image: 'images/monster_3.png',
+    sequenceSheet: 'images/monster_3-sequence.png',
+    successSequenceSheet: 'images/monster_3_success.png',
+  }, // 그리핀 — 후반 (7~9번째)
+  {
+    minWords: 9,
+    image: 'images/monster_2.png',
+    sequenceSheet: 'images/monster_2-sequence.png',
+    successSequenceSheet: 'images/monster_2_success.png',
+  }, // 돌 야수 — 최종 보스 (10번째)
 ]
 
 export function getMonsterTier(wordsDone: number): MonsterTier {
